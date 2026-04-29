@@ -1,0 +1,86 @@
+import type { CockpitStateSnapshot } from '@/types/cockpit';
+
+const now = new Date().toISOString();
+
+export const sampleSnapshot: CockpitStateSnapshot = {
+  selectedProjectId: 'project-cockpit',
+  projects: [
+    {
+      id: 'project-cockpit',
+      name: 'AI Project Cockpit',
+      oneLiner: '为产品研发小队设计的自用 AI-native 项目驾驶舱',
+      description: '第一版聚焦项目状态、任务、上下文、AI 工作记录和关键决策的卡片化沉淀。',
+      status: 'active',
+      stage: 'planning',
+      owner: 'Combo',
+      members: ['Combo', 'Codex'],
+      priority: 'high',
+      weeklyFocus: ['明确 MVP 边界', '搭建可运行原型', '验证卡片式项目驾驶舱手感'],
+      summary: '方向已收敛到纯自用产品研发工具。当前重点是基于 team-cards 复用卡片交互，并用 SQLite 保存本地数据。',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ],
+  tasks: [
+    {
+      id: 'task-ia',
+      projectId: 'project-cockpit',
+      title: '确定第一版信息架构',
+      description: '左侧项目列表，右侧驾驶舱，任务、上下文、AI Record 和决策全部使用卡片。',
+      status: 'doing',
+      owner: 'Combo',
+      priority: 'high',
+      dueDate: '',
+      subtasks: [
+        { id: 'sub-1', title: '确认项目入口形态', completed: true },
+        { id: 'sub-2', title: '确认数据保存方式', completed: true },
+      ],
+      notes: '已决定使用 SQLite，不做登录，不接飞书。',
+      source: 'manual',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ],
+  contexts: [
+    {
+      id: 'context-prd',
+      projectId: 'project-cockpit',
+      title: '初始 PRD',
+      type: 'idea',
+      content: '原始 PRD 已放在 docs/ai_project_cockpit_prd.md，作为后续讨论和迭代的基础。',
+      url: '',
+      source: 'docs',
+      importance: 'high',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ],
+  aiRecords: [
+    {
+      id: 'ai-record-decisions',
+      projectId: 'project-cockpit',
+      title: '方向收敛记录',
+      tool: 'Codex',
+      inputSummary: '基于 PRD 讨论第一版需要先确定的问题。',
+      outputSummary: '第一版定位为纯自用产品研发项目驾驶舱，AI 是辅助模块，Context 和 Task 都用卡片。',
+      rawOutput: '',
+      value: 'decision_support',
+      status: 'used',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ],
+  decisions: [
+    {
+      id: 'decision-scope',
+      projectId: 'project-cockpit',
+      title: '第一版只做纯自用产品研发工具',
+      decision: '不做登录、租户、SaaS 化权限、飞书集成和复杂工作流。',
+      rationale: '先获得真实日常使用手感，避免过早抽象。',
+      alternatives: '未来 SaaS 雏形；接入飞书；以 AI Chat 为主入口。',
+      impact: '技术方案可以先采用本地 SQLite，产品页面优先围绕项目状态和卡片沉淀展开。',
+      decidedBy: ['Combo'],
+      createdAt: now,
+    },
+  ],
+};
