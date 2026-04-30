@@ -139,7 +139,7 @@ function fallbackChanges(input: AIRequest): AIChange[] {
       payload: {
         title: 'AI 建议变更原则',
         content: 'AI 可以提出结构化变更，但第一版必须由用户确认后再应用，不允许自动删除或批量改动关键项目字段。',
-        type: 'technical',
+        type: 'note',
         importance: 'high',
         source: 'Cockpit AI',
       },

@@ -22,7 +22,7 @@ npm run dev
 
 默认开发地址是 [http://localhost:3112](http://localhost:3112)。
 
-本地数据会保存在 `data/cockpit.sqlite`，不会提交到版本库。
+本地数据会保存在 `data/cockpit.sqlite`，不会提交到版本库。上传的上下文文件会保存在 `public/uploads/`，部署同步代码时也应保留该目录，避免覆盖用户上传资料。
 
 ## 文档
 

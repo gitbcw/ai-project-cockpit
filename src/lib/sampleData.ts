@@ -3,6 +3,31 @@ import type { CockpitStateSnapshot } from '@/types/cockpit';
 const now = new Date().toISOString();
 
 export const sampleSnapshot: CockpitStateSnapshot = {
+  settings: {
+    assignees: ['Combo', 'Codex', 'Claude'],
+    projectTemplate: {
+      name: '新产品研发项目',
+      oneLiner: '一句话说明这个项目要达成什么',
+      owner: 'Combo',
+      members: ['Combo'],
+      weeklyFocus: ['明确目标', '拆出第一批任务'],
+      summary: '这个项目还在整理中。',
+      status: 'active',
+      stage: 'exploring',
+      priority: 'medium',
+    },
+    taskDefaults: {
+      owner: '',
+      status: 'todo',
+      priority: 'medium',
+      dueDateOffsetDays: 0,
+    },
+    workspace: {
+      defaultTaskFilter: 'active',
+      contextLimit: 6,
+      decisionLimit: 3,
+    },
+  },
   selectedProjectId: 'project-cockpit',
   projects: [
     {
@@ -46,11 +71,14 @@ export const sampleSnapshot: CockpitStateSnapshot = {
       id: 'context-prd',
       projectId: 'project-cockpit',
       title: '初始 PRD',
-      type: 'idea',
+      type: 'doc',
       content: '原始 PRD 已放在 docs/ai_project_cockpit_prd.md，作为后续讨论和迭代的基础。',
       url: '',
       source: 'docs',
       importance: 'high',
+      pinned: true,
+      archived: false,
+      workspaceVisible: true,
       createdAt: now,
       updatedAt: now,
     },
@@ -80,7 +108,11 @@ export const sampleSnapshot: CockpitStateSnapshot = {
       alternatives: '未来 SaaS 雏形；接入飞书；以 AI Chat 为主入口。',
       impact: '技术方案可以先采用本地 SQLite，产品页面优先围绕项目状态和卡片沉淀展开。',
       decidedBy: ['Combo'],
+      pinned: true,
+      archived: false,
+      workspaceVisible: true,
       createdAt: now,
+      updatedAt: now,
     },
   ],
 };

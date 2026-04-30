@@ -8,12 +8,46 @@ import type {
   ContextCard,
   DecisionCard,
   Project,
+  SystemSettings,
+  SystemSettingsUpdate,
   TaskCard,
   TaskStatus,
 } from '@/types/cockpit';
 import { sampleSnapshot } from '@/lib/sampleData';
 
-const makeId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+const defaultSettings: SystemSettings = {
+  assignees: ['Combo', 'Codex', 'Claude'],
+  projectTemplate: {
+    name: '新产品研发项目',
+    oneLiner: '一句话说明这个项目要达成什么',
+    owner: 'Combo',
+    members: ['Combo'],
+    weeklyFocus: ['明确目标', '拆出第一批任务'],
+    summary: '这个项目还在整理中。',
+    status: 'active',
+    stage: 'exploring',
+    priority: 'medium',
+  },
+  taskDefaults: {
+    owner: '',
+    status: 'todo',
+    priority: 'medium',
+    dueDateOffsetDays: 0,
+  },
+  workspace: {
+    defaultTaskFilter: 'active',
+    contextLimit: 6,
+    decisionLimit: 3,
+  },
+};
+
+const makeId = (prefix: string) => {
+  const cryptoId = globalThis.crypto?.randomUUID?.();
+  if (cryptoId) return `${prefix}-${cryptoId}`;
+
+  const fallbackId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}-${fallbackId}`;
+};
 const now = () => new Date().toISOString();
 
 interface CockpitStore extends CockpitStateSnapshot {
@@ -29,19 +63,22 @@ interface CockpitStore extends CockpitStateSnapshot {
   selectProject: (id: string) => void;
   setSearchQuery: (query: string) => void;
   createProject: () => void;
+  deleteProject: (id: string) => void;
+  reorderProjects: (activeId: string, overId: string) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
-  createTask: (projectId: string) => void;
+  updateSettings: (updates: SystemSettingsUpdate) => void;
+  createTask: (projectId: string) => string;
   updateTask: (id: string, updates: Partial<TaskCard>) => void;
   deleteTask: (id: string) => void;
   cycleTaskStatus: (id: string) => void;
-  createContext: (projectId: string) => void;
+  createContext: (projectId: string) => string;
   updateContext: (id: string, updates: Partial<ContextCard>) => void;
   deleteContext: (id: string) => void;
   createAIRecord: (projectId: string, output?: string) => void;
   updateAIRecord: (id: string, updates: Partial<AIRecordCard>) => void;
   deleteAIRecord: (id: string) => void;
   createTaskFromAIRecord: (recordId: string) => void;
-  createDecision: (projectId: string) => void;
+  createDecision: (projectId: string) => string;
   updateDecision: (id: string, updates: Partial<DecisionCard>) => void;
   deleteDecision: (id: string) => void;
   runAiAction: (projectId: string, action: string) => Promise<void>;
@@ -58,12 +95,82 @@ const nextStatus: Record<TaskStatus, TaskStatus> = {
 };
 
 const snapshotFromState = (state: CockpitStore): CockpitStateSnapshot => ({
+  settings: normalizeSettings(state.settings),
   projects: state.projects,
   tasks: state.tasks,
   contexts: state.contexts,
   aiRecords: state.aiRecords,
   decisions: state.decisions,
   selectedProjectId: state.selectedProjectId,
+});
+
+const normalizeSettings = (settings?: SystemSettingsUpdate): SystemSettings => {
+  const assignees = settings?.assignees?.map((assignee) => assignee.trim()).filter(Boolean) || [];
+  const template = settings?.projectTemplate;
+  const taskDefaults = settings?.taskDefaults;
+  const workspace = settings?.workspace;
+
+  return {
+    assignees: assignees.length > 0 ? Array.from(new Set(assignees)) : defaultSettings.assignees,
+    projectTemplate: {
+      ...defaultSettings.projectTemplate,
+      ...template,
+      name: template?.name?.trim() || defaultSettings.projectTemplate.name,
+      oneLiner: template?.oneLiner?.trim() || defaultSettings.projectTemplate.oneLiner,
+      owner: template?.owner?.trim() || defaultSettings.projectTemplate.owner,
+      members: cleanList(template?.members || defaultSettings.projectTemplate.members),
+      weeklyFocus: cleanList(template?.weeklyFocus || defaultSettings.projectTemplate.weeklyFocus).slice(0, 3),
+      summary: template?.summary || defaultSettings.projectTemplate.summary,
+    },
+    taskDefaults: {
+      ...defaultSettings.taskDefaults,
+      ...taskDefaults,
+      dueDateOffsetDays: clampNumber(taskDefaults?.dueDateOffsetDays, 0, 365, defaultSettings.taskDefaults.dueDateOffsetDays),
+    },
+    workspace: {
+      ...defaultSettings.workspace,
+      ...workspace,
+      contextLimit: clampNumber(workspace?.contextLimit, 1, 24, defaultSettings.workspace.contextLimit),
+      decisionLimit: clampNumber(workspace?.decisionLimit, 1, 12, defaultSettings.workspace.decisionLimit),
+    },
+  };
+};
+
+const cleanList = (items: string[]) => Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+
+const clampNumber = (value: number | undefined, min: number, max: number, fallback: number) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+};
+
+const dateFromOffset = (offsetDays: number) => {
+  if (offsetDays <= 0) return '';
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+};
+
+const normalizeContextType = (type: string | undefined): ContextCard['type'] => {
+  if (type === 'idea') return 'note';
+  if (type === 'technical') return 'doc';
+  if (['note', 'doc', 'meeting', 'feedback', 'research', 'link', 'file'].includes(type || '')) return type as ContextCard['type'];
+  return 'note';
+};
+
+const normalizeContexts = (contexts: ContextCard[] | undefined): ContextCard[] =>
+  (contexts || []).map((context) => ({
+    ...context,
+    type: normalizeContextType(context.type),
+  }));
+
+const normalizeSnapshot = (snapshot: Partial<CockpitStateSnapshot>): CockpitStateSnapshot => ({
+  settings: normalizeSettings(snapshot.settings),
+  projects: snapshot.projects || [],
+  tasks: snapshot.tasks || [],
+  contexts: normalizeContexts(snapshot.contexts),
+  aiRecords: snapshot.aiRecords || [],
+  decisions: snapshot.decisions || [],
+  selectedProjectId: snapshot.selectedProjectId || null,
 });
 
 export const useCockpitStore = create<CockpitStore>()((set, get) => ({
@@ -80,7 +187,7 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
     const res = await fetch('/api/state', { cache: 'no-store' });
     if (!res.ok) throw new Error('Failed to load cockpit state');
     const snapshot = (await res.json()) as CockpitStateSnapshot & { stateVersion?: string };
-    set({ ...snapshot, stateVersion: snapshot.stateVersion || null, hydrated: true });
+    set({ ...normalizeSnapshot(snapshot), stateVersion: snapshot.stateVersion || null, hydrated: true });
   },
 
   save: async () => {
@@ -105,23 +212,52 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
   createProject: () => {
     const id = makeId('project');
     const timestamp = now();
+    const template = normalizeSettings(get().settings).projectTemplate;
     const project: Project = {
       id,
-      name: '新产品研发项目',
-      oneLiner: '一句话说明这个项目要达成什么',
+      name: template.name,
+      oneLiner: template.oneLiner,
       description: '',
-      status: 'active',
-      stage: 'exploring',
-      owner: 'Combo',
-      members: ['Combo'],
-      priority: 'medium',
-      weeklyFocus: ['明确目标', '拆出第一批任务'],
-      summary: '这个项目还在整理中。',
+      status: template.status,
+      stage: template.stage,
+      owner: template.owner,
+      members: template.members,
+      priority: template.priority,
+      weeklyFocus: template.weeklyFocus,
+      summary: template.summary,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     set((state) => ({ projects: [project, ...state.projects], selectedProjectId: id }));
   },
+
+  deleteProject: (id) =>
+    set((state) => {
+      const projectIndex = state.projects.findIndex((project) => project.id === id);
+      const projects = state.projects.filter((project) => project.id !== id);
+      const fallbackProject = projects[projectIndex] || projects[projectIndex - 1] || projects[0];
+
+      return {
+        projects,
+        tasks: state.tasks.filter((task) => task.projectId !== id),
+        contexts: state.contexts.filter((context) => context.projectId !== id),
+        aiRecords: state.aiRecords.filter((record) => record.projectId !== id),
+        decisions: state.decisions.filter((decision) => decision.projectId !== id),
+        selectedProjectId: state.selectedProjectId === id ? fallbackProject?.id || null : state.selectedProjectId,
+      };
+    }),
+
+  reorderProjects: (activeId, overId) =>
+    set((state) => {
+      const fromIndex = state.projects.findIndex((project) => project.id === activeId);
+      const toIndex = state.projects.findIndex((project) => project.id === overId);
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return {};
+
+      const projects = [...state.projects];
+      const [movedProject] = projects.splice(fromIndex, 1);
+      projects.splice(toIndex, 0, movedProject);
+      return { projects };
+    }),
 
   updateProject: (id, updates) =>
     set((state) => ({
@@ -130,17 +266,24 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
       ),
     })),
 
+  updateSettings: (updates) =>
+    set((state) => ({
+      settings: normalizeSettings({ ...state.settings, ...updates }),
+    })),
+
   createTask: (projectId) => {
     const timestamp = now();
+    const id = makeId('task');
+    const defaults = normalizeSettings(get().settings).taskDefaults;
     const task: TaskCard = {
-      id: makeId('task'),
+      id,
       projectId,
       title: '新任务',
       description: '',
-      status: 'todo',
-      owner: '',
-      priority: 'medium',
-      dueDate: '',
+      status: defaults.status,
+      owner: defaults.owner,
+      priority: defaults.priority,
+      dueDate: dateFromOffset(defaults.dueDateOffsetDays),
       subtasks: [],
       notes: '',
       source: 'manual',
@@ -148,6 +291,7 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
       updatedAt: timestamp,
     };
     set((state) => ({ tasks: [task, ...state.tasks] }));
+    return id;
   },
 
   updateTask: (id, updates) =>
@@ -169,19 +313,24 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
 
   createContext: (projectId) => {
     const timestamp = now();
+    const id = makeId('context');
     const context: ContextCard = {
-      id: makeId('context'),
+      id,
       projectId,
       title: '新上下文',
-      type: 'idea',
+      type: 'note',
       content: '',
       url: '',
       source: '',
       importance: 'medium',
+      pinned: false,
+      archived: false,
+      workspaceVisible: true,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     set((state) => ({ contexts: [context, ...state.contexts] }));
+    return id;
   },
 
   updateContext: (id, updates) =>
@@ -259,8 +408,10 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
   },
 
   createDecision: (projectId) => {
+    const timestamp = now();
+    const id = makeId('decision');
     const decision: DecisionCard = {
-      id: makeId('decision'),
+      id,
       projectId,
       title: '新决策',
       decision: '',
@@ -268,14 +419,21 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
       alternatives: '',
       impact: '',
       decidedBy: ['Combo'],
-      createdAt: now(),
+      pinned: false,
+      archived: false,
+      workspaceVisible: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
     set((state) => ({ decisions: [decision, ...state.decisions] }));
+    return id;
   },
 
   updateDecision: (id, updates) =>
     set((state) => ({
-      decisions: state.decisions.map((decision) => (decision.id === id ? { ...decision, ...updates } : decision)),
+      decisions: state.decisions.map((decision) =>
+        decision.id === id ? { ...decision, ...updates, updatedAt: now() } : decision,
+      ),
     })),
 
   deleteDecision: (id) =>
@@ -339,10 +497,13 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
           projectId,
           title: change.payload.title,
           content: change.payload.content,
-          type: change.payload.type || 'idea',
+          type: normalizeContextType(change.payload.type),
           importance: change.payload.importance || 'medium',
           source: change.payload.source || 'AI 建议',
           url: '',
+          pinned: false,
+          archived: false,
+          workspaceVisible: true,
           createdAt: timestamp,
           updatedAt: timestamp,
         });
@@ -358,7 +519,11 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
           alternatives: '',
           impact: '',
           decidedBy: ['Combo'],
+          pinned: false,
+          archived: false,
+          workspaceVisible: true,
           createdAt: timestamp,
+          updatedAt: timestamp,
         });
       }
 

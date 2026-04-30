@@ -91,7 +91,7 @@ Record context when a reusable fact matters:
   "projectIdOrName": "AI Project Cockpit",
   "title": "MCP writes to SQLite snapshot",
   "content": "The first MCP version reads and writes the same cockpit_state/main JSON snapshot used by the web app.",
-  "type": "technical",
+  "type": "doc",
   "importance": "high",
   "source": "mcp-server/src/db.ts"
 }

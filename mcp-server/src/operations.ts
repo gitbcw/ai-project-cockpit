@@ -24,6 +24,20 @@ function id(prefix: string) {
   return `${prefix}-${randomUUID()}`;
 }
 
+function normalizeContextType(type: string | undefined): ContextType {
+  if (type === 'idea') return 'note';
+  if (type === 'technical') return 'doc';
+  if (['note', 'doc', 'meeting', 'feedback', 'research', 'link', 'file'].includes(type || '')) return type as ContextType;
+  return 'note';
+}
+
+function normalizeContext(context: ContextCard): ContextCard {
+  return {
+    ...context,
+    type: normalizeContextType(context.type),
+  };
+}
+
 export function resolveProject(projectIdOrName?: string): Project {
   const state = readState();
   const project =
@@ -55,7 +69,7 @@ export function getProject(projectIdOrName?: string) {
   return {
     project,
     tasks: state.tasks.filter((task) => task.projectId === project.id),
-    contexts: state.contexts.filter((context) => context.projectId === project.id),
+    contexts: state.contexts.filter((context) => context.projectId === project.id).map(normalizeContext),
     aiRecords: state.aiRecords.filter((record) => record.projectId === project.id),
     decisions: state.decisions.filter((decision) => decision.projectId === project.id),
   };
@@ -71,7 +85,7 @@ export function searchMemory(query: string, projectIdOrName?: string) {
   return {
     projects: state.projects.filter((item) => (!project || item.id === project.id) && has(item.name, item.oneLiner, item.description, item.summary)),
     tasks: state.tasks.filter((item) => inProject(item.projectId) && has(item.title, item.description, item.notes, item.owner)),
-    contexts: state.contexts.filter((item) => inProject(item.projectId) && has(item.title, item.content, item.source, item.url)),
+    contexts: state.contexts.filter((item) => inProject(item.projectId) && has(item.title, item.content, item.source, item.url)).map(normalizeContext),
     aiRecords: state.aiRecords.filter((item) => inProject(item.projectId) && has(item.title, item.inputSummary, item.outputSummary, item.rawOutput, item.tool)),
     decisions: state.decisions.filter((item) => inProject(item.projectId) && has(item.title, item.decision, item.rationale, item.alternatives, item.impact)),
   };
@@ -126,7 +140,7 @@ export function createContext(input: {
   projectIdOrName?: string;
   title: string;
   content: string;
-  type?: ContextType;
+  type?: ContextType | 'idea' | 'technical';
   importance?: Priority;
   source?: string;
   url?: string;
@@ -138,7 +152,7 @@ export function createContext(input: {
       projectId: project.id,
       title: input.title,
       content: input.content,
-      type: input.type || 'idea',
+      type: normalizeContextType(input.type),
       importance: input.importance || 'medium',
       source: input.source || 'MCP',
       url: input.url || '',

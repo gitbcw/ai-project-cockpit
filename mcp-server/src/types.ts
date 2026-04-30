@@ -2,7 +2,7 @@ export type ProjectStatus = 'active' | 'paused' | 'shipped' | 'archived';
 export type ProjectStage = 'exploring' | 'planning' | 'building' | 'testing' | 'launched';
 export type Priority = 'high' | 'medium' | 'low';
 export type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done' | 'canceled';
-export type ContextType = 'idea' | 'feedback' | 'research' | 'technical' | 'link';
+export type ContextType = 'note' | 'doc' | 'meeting' | 'feedback' | 'research' | 'link' | 'file';
 export type AIRecordValue = 'insight' | 'task_suggestion' | 'draft' | 'code' | 'research' | 'decision_support';
 
 export interface Project {

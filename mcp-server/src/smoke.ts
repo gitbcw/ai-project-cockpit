@@ -48,7 +48,7 @@ writeState({
 
 const task = createTask({ title: 'Write MCP smoke test', priority: 'high' });
 updateTaskStatus({ taskId: task.id, status: 'done', notes: 'Verified.' });
-createContext({ title: 'MCP direction', content: 'External agents should write back to Cockpit.', type: 'technical' });
+createContext({ title: 'MCP direction', content: 'External agents should write back to Cockpit.', type: 'note' });
 createAIRecord({ title: 'Agent output', outputSummary: 'MCP server works.', tool: 'smoke' });
 createDecision({ title: 'Use MCP', decision: 'Expose Cockpit through local MCP.', rationale: 'Agents work outside the web UI.' });
 updateProjectSummary({ summary: 'Smoke summary updated.' });

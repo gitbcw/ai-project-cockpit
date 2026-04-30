@@ -368,7 +368,7 @@ Context 是项目资料、背景、链接、会议纪要、用户反馈等信息
 | id | string | 上下文 ID |
 | project_id | string | 所属项目 |
 | title | string | 标题 |
-| type | enum | note / doc / link / meeting / user_feedback / research / file |
+| type | enum | note / doc / meeting / feedback / research / link / file |
 | content | text | 正文内容 |
 | url | string | 外部链接，可选 |
 | source | string | 来源 |
@@ -568,10 +568,11 @@ AI 输出中可以识别建议任务，用户可以一键转为任务。
 
 - 普通笔记
 - 文档内容
-- 链接
 - 会议纪要
-- 用户反馈
+- 反馈
 - 调研资料
+- 链接
+- 文件
 
 ### 10.4.2 上下文列表
 
@@ -1332,4 +1333,3 @@ AI 工作区
 3. Context 上下文应该更像 Notion 页面，还是更像结构化资料卡片？
 4. 任务管理要不要极简到只保留 Todo / Doing / Done / Blocked？
 5. 第一版是否需要接入飞书，还是完全独立运行？
-

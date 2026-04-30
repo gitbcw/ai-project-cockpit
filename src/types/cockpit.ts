@@ -2,8 +2,41 @@ export type ProjectStatus = 'active' | 'paused' | 'shipped' | 'archived';
 export type ProjectStage = 'exploring' | 'planning' | 'building' | 'testing' | 'launched';
 export type Priority = 'high' | 'medium' | 'low';
 export type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done' | 'canceled';
-export type ContextType = 'idea' | 'feedback' | 'research' | 'technical' | 'link';
+export type ContextType = 'note' | 'doc' | 'meeting' | 'feedback' | 'research' | 'link' | 'file';
 export type AIRecordValue = 'insight' | 'task_suggestion' | 'draft' | 'code' | 'research' | 'decision_support';
+
+export interface SystemSettings {
+  assignees: string[];
+  projectTemplate: {
+    name: string;
+    oneLiner: string;
+    owner: string;
+    members: string[];
+    weeklyFocus: string[];
+    summary: string;
+    status: ProjectStatus;
+    stage: ProjectStage;
+    priority: Priority;
+  };
+  taskDefaults: {
+    owner: string;
+    status: TaskStatus;
+    priority: Priority;
+    dueDateOffsetDays: number;
+  };
+  workspace: {
+    defaultTaskFilter: 'active' | 'all' | 'done';
+    contextLimit: number;
+    decisionLimit: number;
+  };
+}
+
+export type SystemSettingsUpdate = {
+  assignees?: string[];
+  projectTemplate?: Partial<SystemSettings['projectTemplate']>;
+  taskDefaults?: Partial<SystemSettings['taskDefaults']>;
+  workspace?: Partial<SystemSettings['workspace']>;
+};
 
 export interface Project {
   id: string;
@@ -47,6 +80,9 @@ export interface ContextCard {
   url: string;
   importance: Priority;
   source: string;
+  pinned?: boolean;
+  archived?: boolean;
+  workspaceVisible?: boolean;
   updatedAt: string;
   createdAt: string;
 }
@@ -74,10 +110,15 @@ export interface DecisionCard {
   alternatives: string;
   impact: string;
   decidedBy: string[];
+  pinned?: boolean;
+  archived?: boolean;
+  workspaceVisible?: boolean;
+  updatedAt?: string;
   createdAt: string;
 }
 
 export interface CockpitStateSnapshot {
+  settings: SystemSettings;
   projects: Project[];
   tasks: TaskCard[];
   contexts: ContextCard[];
