@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { readCockpitStateWithVersion, writeCockpitState } from '@/lib/db';
-import type { CockpitStateSnapshot, ContextCard, ContextType, SystemSettings } from '@/types/cockpit';
+import type { CockpitStateSnapshot, ContextCard, ContextType, FinanceCard, FinanceReceipt, ProjectOutlineItem, ProjectOutlineStageGoal, SystemSettings } from '@/types/cockpit';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,10 +49,13 @@ function stripMeta(snapshot: CockpitStateSnapshot & { stateVersion?: string }): 
   return {
     settings: normalizeSettings(snapshot.settings),
     projects: snapshot.projects,
+    outlineStageGoals: snapshot.outlineStageGoals || migrateOutlineStageGoals(snapshot.outlineItems || []),
+    outlineItems: snapshot.outlineItems || [],
     tasks: snapshot.tasks,
     contexts: normalizeContexts(snapshot.contexts),
     aiRecords: snapshot.aiRecords,
     decisions: snapshot.decisions,
+    finances: normalizeFinances(snapshot.finances),
     selectedProjectId: snapshot.selectedProjectId,
   };
 }
@@ -61,10 +64,16 @@ function mergeSnapshots(current: CockpitStateSnapshot, incoming: CockpitStateSna
   return {
     settings: normalizeSettings(incoming.settings || current.settings),
     projects: mergeById(current.projects, incoming.projects),
+    outlineStageGoals: mergeById(
+      current.outlineStageGoals || migrateOutlineStageGoals(current.outlineItems || []),
+      incoming.outlineStageGoals || migrateOutlineStageGoals(incoming.outlineItems || []),
+    ),
+    outlineItems: mergeById(current.outlineItems || [], incoming.outlineItems || []),
     tasks: mergeById(current.tasks, incoming.tasks),
     contexts: normalizeContexts(mergeById(current.contexts, incoming.contexts)),
     aiRecords: mergeById(current.aiRecords, incoming.aiRecords),
     decisions: mergeById(current.decisions, incoming.decisions),
+    finances: normalizeFinances(mergeById(current.finances || [], incoming.finances || [])),
     selectedProjectId: incoming.selectedProjectId || current.selectedProjectId,
   };
 }
@@ -78,10 +87,13 @@ function normalizeSnapshot(snapshot: Partial<CockpitStateSnapshot>): CockpitStat
   return {
     settings: normalizeSettings(snapshot.settings),
     projects: snapshot.projects || [],
+    outlineStageGoals: snapshot.outlineStageGoals || migrateOutlineStageGoals(snapshot.outlineItems || []),
+    outlineItems: snapshot.outlineItems || [],
     tasks: snapshot.tasks || [],
     contexts: normalizeContexts(snapshot.contexts),
     aiRecords: snapshot.aiRecords || [],
     decisions: snapshot.decisions || [],
+    finances: normalizeFinances(snapshot.finances),
     selectedProjectId: snapshot.selectedProjectId || null,
   };
 }
@@ -139,4 +151,40 @@ function normalizeContexts(contexts: ContextCard[] | undefined): ContextCard[] {
     ...context,
     type: normalizeContextType(context.type),
   }));
+}
+
+function normalizeFinances(finances: FinanceCard[] | undefined): FinanceCard[] {
+  return (finances || []).map((finance) => {
+    if (finance.receipts) return finance;
+    const legacyUrl = (finance as { url?: string }).url;
+    const legacyType = (finance as { receiptType?: string }).receiptType;
+    const receipts: FinanceReceipt[] = [];
+    if (legacyUrl && legacyType && legacyType !== 'none') {
+      receipts.push({ url: legacyUrl, type: legacyType as 'link' | 'file' });
+    }
+    const { ...rest } = finance;
+    return { ...rest, receipts };
+  });
+}
+
+function migrateOutlineStageGoals(items: Partial<ProjectOutlineItem>[] | undefined): ProjectOutlineStageGoal[] {
+  const timestamp = new Date().toISOString();
+  const goals = new Map<string, ProjectOutlineStageGoal>();
+
+  (items || []).forEach((item) => {
+    const legacyGoal = (item as { goal?: string }).goal?.trim();
+    if (!item.projectId || !item.stage || !legacyGoal) return;
+    const key = `${item.projectId}:${item.stage}`;
+    if (goals.has(key)) return;
+    goals.set(key, {
+      id: `outline-goal-${item.projectId}-${item.stage}`,
+      projectId: item.projectId,
+      stage: item.stage,
+      goal: legacyGoal,
+      createdAt: item.createdAt || timestamp,
+      updatedAt: item.updatedAt || timestamp,
+    });
+  });
+
+  return Array.from(goals.values());
 }

@@ -3,7 +3,10 @@ export type ProjectStage = 'exploring' | 'planning' | 'building' | 'testing' | '
 export type Priority = 'high' | 'medium' | 'low';
 export type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done' | 'canceled';
 export type ContextType = 'note' | 'doc' | 'meeting' | 'feedback' | 'research' | 'link' | 'file';
+export type FinanceCategory = 'equipment' | 'software' | 'service' | 'travel' | 'food' | 'marketing' | 'other';
+export type FinanceStatus = 'pending' | 'approved' | 'reimbursed';
 export type AIRecordValue = 'insight' | 'task_suggestion' | 'draft' | 'code' | 'research' | 'decision_support';
+export type OutlineStatus = 'not_started' | 'doing' | 'done' | 'risk';
 
 export interface SystemSettings {
   assignees: string[];
@@ -71,6 +74,27 @@ export interface TaskCard {
   createdAt: string;
 }
 
+export interface ProjectOutlineItem {
+  id: string;
+  projectId: string;
+  stage: ProjectStage;
+  task: string;
+  status: OutlineStatus;
+  note: string;
+  order: number;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface ProjectOutlineStageGoal {
+  id: string;
+  projectId: string;
+  stage: ProjectStage;
+  goal: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
 export interface ContextCard {
   id: string;
   projectId: string;
@@ -117,13 +141,37 @@ export interface DecisionCard {
   createdAt: string;
 }
 
+export interface FinanceReceipt {
+  url: string;
+  type: 'link' | 'file';
+  name?: string;
+}
+
+export interface FinanceCard {
+  id: string;
+  projectId: string | null;
+  title: string;
+  amount: number;
+  category: FinanceCategory;
+  status: FinanceStatus;
+  date: string;
+  description: string;
+  receipts: FinanceReceipt[];
+  payer: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CockpitStateSnapshot {
   settings: SystemSettings;
   projects: Project[];
+  outlineStageGoals: ProjectOutlineStageGoal[];
+  outlineItems: ProjectOutlineItem[];
   tasks: TaskCard[];
   contexts: ContextCard[];
   aiRecords: AIRecordCard[];
   decisions: DecisionCard[];
+  finances: FinanceCard[];
   selectedProjectId: string | null;
 }
 

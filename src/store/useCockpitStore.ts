@@ -7,7 +7,11 @@ import type {
   CockpitStateSnapshot,
   ContextCard,
   DecisionCard,
+  FinanceCard,
+  FinanceReceipt,
   Project,
+  ProjectOutlineItem,
+  ProjectOutlineStageGoal,
   SystemSettings,
   SystemSettingsUpdate,
   TaskCard,
@@ -66,6 +70,10 @@ interface CockpitStore extends CockpitStateSnapshot {
   deleteProject: (id: string) => void;
   reorderProjects: (activeId: string, overId: string) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
+  updateOutlineStageGoal: (projectId: string, stage: Project['stage'], goal: string) => void;
+  createOutlineItem: (projectId: string, stage: Project['stage']) => string;
+  updateOutlineItem: (id: string, updates: Partial<ProjectOutlineItem>) => void;
+  deleteOutlineItem: (id: string) => void;
   updateSettings: (updates: SystemSettingsUpdate) => void;
   createTask: (projectId: string) => string;
   updateTask: (id: string, updates: Partial<TaskCard>) => void;
@@ -81,6 +89,9 @@ interface CockpitStore extends CockpitStateSnapshot {
   createDecision: (projectId: string) => string;
   updateDecision: (id: string, updates: Partial<DecisionCard>) => void;
   deleteDecision: (id: string) => void;
+  createFinance: () => string;
+  updateFinance: (id: string, updates: Partial<FinanceCard>) => void;
+  deleteFinance: (id: string) => void;
   runAiAction: (projectId: string, action: string) => Promise<void>;
   toggleAIChange: (id: string) => void;
   applySelectedAIChanges: (projectId: string) => void;
@@ -97,10 +108,13 @@ const nextStatus: Record<TaskStatus, TaskStatus> = {
 const snapshotFromState = (state: CockpitStore): CockpitStateSnapshot => ({
   settings: normalizeSettings(state.settings),
   projects: state.projects,
+  outlineStageGoals: state.outlineStageGoals,
+  outlineItems: state.outlineItems,
   tasks: state.tasks,
   contexts: state.contexts,
   aiRecords: state.aiRecords,
   decisions: state.decisions,
+  finances: state.finances,
   selectedProjectId: state.selectedProjectId,
 });
 
@@ -163,13 +177,51 @@ const normalizeContexts = (contexts: ContextCard[] | undefined): ContextCard[] =
     type: normalizeContextType(context.type),
   }));
 
+const normalizeFinances = (finances: FinanceCard[] | undefined): FinanceCard[] =>
+  (finances || []).map((finance) => {
+    if (finance.receipts) return finance;
+    const legacyUrl = (finance as { url?: string }).url;
+    const legacyType = (finance as { receiptType?: string }).receiptType;
+    const receipts: FinanceReceipt[] = [];
+    if (legacyUrl && legacyType && legacyType !== 'none') {
+      receipts.push({ url: legacyUrl, type: legacyType as 'link' | 'file' });
+    }
+    const { ...rest } = finance;
+    return { ...rest, receipts };
+  });
+
+const migrateOutlineStageGoals = (items: Partial<ProjectOutlineItem>[]): ProjectOutlineStageGoal[] => {
+  const timestamp = now();
+  const goals = new Map<string, ProjectOutlineStageGoal>();
+
+  items.forEach((item) => {
+    const legacyGoal = (item as { goal?: string }).goal?.trim();
+    if (!item.projectId || !item.stage || !legacyGoal) return;
+    const key = `${item.projectId}:${item.stage}`;
+    if (goals.has(key)) return;
+    goals.set(key, {
+      id: `outline-goal-${item.projectId}-${item.stage}`,
+      projectId: item.projectId,
+      stage: item.stage,
+      goal: legacyGoal,
+      createdAt: item.createdAt || timestamp,
+      updatedAt: item.updatedAt || timestamp,
+    });
+  });
+
+  return Array.from(goals.values());
+};
+
 const normalizeSnapshot = (snapshot: Partial<CockpitStateSnapshot>): CockpitStateSnapshot => ({
   settings: normalizeSettings(snapshot.settings),
   projects: snapshot.projects || [],
+  outlineStageGoals: snapshot.outlineStageGoals || migrateOutlineStageGoals(snapshot.outlineItems || []),
+  outlineItems: snapshot.outlineItems || [],
   tasks: snapshot.tasks || [],
   contexts: normalizeContexts(snapshot.contexts),
   aiRecords: snapshot.aiRecords || [],
   decisions: snapshot.decisions || [],
+  finances: normalizeFinances(snapshot.finances),
   selectedProjectId: snapshot.selectedProjectId || null,
 });
 
@@ -239,6 +291,8 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
 
       return {
         projects,
+        outlineStageGoals: state.outlineStageGoals.filter((item) => item.projectId !== id),
+        outlineItems: state.outlineItems.filter((item) => item.projectId !== id),
         tasks: state.tasks.filter((task) => task.projectId !== id),
         contexts: state.contexts.filter((context) => context.projectId !== id),
         aiRecords: state.aiRecords.filter((record) => record.projectId !== id),
@@ -266,9 +320,61 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
       ),
     })),
 
+  updateOutlineStageGoal: (projectId, stage, goal) =>
+    set((state) => {
+      const timestamp = now();
+      const existing = state.outlineStageGoals.find((item) => item.projectId === projectId && item.stage === stage);
+      if (existing) {
+        return {
+          outlineStageGoals: state.outlineStageGoals.map((item) =>
+            item.id === existing.id ? { ...item, goal, updatedAt: timestamp } : item,
+          ),
+        };
+      }
+
+      const item: ProjectOutlineStageGoal = {
+        id: makeId('outline-goal'),
+        projectId,
+        stage,
+        goal,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      return { outlineStageGoals: [...state.outlineStageGoals, item] };
+    }),
+
   updateSettings: (updates) =>
     set((state) => ({
       settings: normalizeSettings({ ...state.settings, ...updates }),
+    })),
+
+  createOutlineItem: (projectId, stage) => {
+    const timestamp = now();
+    const id = makeId('outline');
+    const order = get().outlineItems.filter((item) => item.projectId === projectId && item.stage === stage).length;
+    const item: ProjectOutlineItem = {
+      id,
+      projectId,
+      stage,
+      task: '',
+      status: 'not_started',
+      note: '',
+      order,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    set((state) => ({ outlineItems: [...state.outlineItems, item] }));
+    return id;
+  },
+
+  updateOutlineItem: (id, updates) =>
+    set((state) => ({
+      outlineItems: state.outlineItems.map((item) => (item.id === id ? { ...item, ...updates, updatedAt: now() } : item)),
+    })),
+
+  deleteOutlineItem: (id) =>
+    set((state) => ({
+      outlineItems: state.outlineItems.filter((item) => item.id !== id),
     })),
 
   createTask: (projectId) => {
@@ -439,6 +545,39 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
   deleteDecision: (id) =>
     set((state) => ({
       decisions: state.decisions.filter((decision) => decision.id !== id),
+    })),
+
+  createFinance: () => {
+    const timestamp = now();
+    const id = makeId('finance');
+    const finance: FinanceCard = {
+      id,
+      projectId: null,
+      title: '新开支记录',
+      amount: 0,
+      category: 'other',
+      status: 'pending',
+      date: timestamp.slice(0, 10),
+      description: '',
+      receipts: [],
+      payer: '',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    set((state) => ({ finances: [finance, ...state.finances] }));
+    return id;
+  },
+
+  updateFinance: (id, updates) =>
+    set((state) => ({
+      finances: state.finances.map((finance) =>
+        finance.id === id ? { ...finance, ...updates, updatedAt: now() } : finance,
+      ),
+    })),
+
+  deleteFinance: (id) =>
+    set((state) => ({
+      finances: state.finances.filter((finance) => finance.id !== id),
     })),
 
   runAiAction: async (projectId, action) => {

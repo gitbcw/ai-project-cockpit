@@ -23,6 +23,8 @@ import {
   Clipboard,
   CopyPlus,
   Archive,
+  Download,
+  ExternalLink,
   Flame,
   FileText,
   GripVertical,
@@ -30,6 +32,8 @@ import {
   Lightbulb,
   ListTodo,
   Maximize2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Settings,
@@ -37,10 +41,11 @@ import {
   Target,
   Trash2,
   Upload,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useCockpitStore } from '@/store/useCockpitStore';
-import type { AIChange, AIRecordCard, ContextCard, ContextType, DecisionCard, Priority, Project, SystemSettings, SystemSettingsUpdate, TaskCard } from '@/types/cockpit';
+import type { AIChange, AIRecordCard, ContextCard, ContextType, DecisionCard, FinanceCard, FinanceCategory, FinanceStatus, OutlineStatus, Priority, Project, ProjectOutlineItem, ProjectOutlineStageGoal, SystemSettings, SystemSettingsUpdate, TaskCard } from '@/types/cockpit';
 
 const statusLabel = {
   active: '推进中',
@@ -60,6 +65,45 @@ const stageLabel = {
   building: '构建',
   testing: '测试',
   launched: '上线',
+};
+
+const outlineStatusLabel: Record<OutlineStatus, string> = {
+  not_started: '未开始',
+  doing: '进行中',
+  done: '已完成',
+  risk: '有风险',
+};
+
+const financeCategoryLabel: Record<FinanceCategory, string> = {
+  equipment: '设备',
+  software: '软件',
+  service: '服务',
+  travel: '差旅',
+  food: '餐饮',
+  marketing: '营销',
+  other: '其他',
+};
+
+const financeStatusLabel: Record<FinanceStatus, string> = {
+  pending: '待处理',
+  approved: '已审批',
+  reimbursed: '已报销',
+};
+
+const financeCategoryStyle: Record<FinanceCategory, string> = {
+  equipment: 'border-slate-200 bg-slate-50 text-slate-700',
+  software: 'border-blue-200 bg-blue-50 text-blue-700',
+  service: 'border-violet-200 bg-violet-50 text-violet-700',
+  travel: 'border-amber-200 bg-amber-50 text-amber-700',
+  food: 'border-orange-200 bg-orange-50 text-orange-700',
+  marketing: 'border-pink-200 bg-pink-50 text-pink-700',
+  other: 'border-gray-200 bg-gray-50 text-gray-700',
+};
+
+const financeStatusStyle: Record<FinanceStatus, string> = {
+  pending: 'border-amber-200 bg-amber-50 text-amber-700',
+  approved: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  reimbursed: 'border-teal-200 bg-teal-50 text-teal-700',
 };
 
 const priorityStyle: Record<Priority, string> = {
@@ -85,7 +129,9 @@ type McpGuidePayload = {
 type TaskFilter = 'active' | 'all' | 'done';
 type LibraryStatusFilter = 'active' | 'workspace' | 'archived';
 type KnowledgePanel = 'contexts' | 'decisions';
-type ActiveCard = { type: 'task' | 'context' | 'decision'; id: string };
+type ActiveCard = { type: 'task' | 'context' | 'decision' | 'finance'; id: string };
+type ResourcePreview = { title: string; url: string };
+type OutlineFocusMode = 'current' | 'all';
 
 type UploadResponse = {
   url: string;
@@ -101,8 +147,13 @@ export default function Home() {
   const [activeKnowledgePanel, setActiveKnowledgePanel] = useState<KnowledgePanel | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMcpGuideOpen, setIsMcpGuideOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [mcpEndpoint, setMcpEndpoint] = useState(defaultMcpEndpoint);
   const [activeCard, setActiveCard] = useState<ActiveCard | null>(null);
+  const [resourcePreview, setResourcePreview] = useState<ResourcePreview | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+  const [isProjectOutlineOpen, setIsProjectOutlineOpen] = useState(false);
+  const [outlineFocusMode, setOutlineFocusMode] = useState<OutlineFocusMode>('current');
   const [taskFilter, setTaskFilter] = useState<TaskFilter | null>(null);
   const [contextLibraryQuery, setContextLibraryQuery] = useState('');
   const [contextTypeFilter, setContextTypeFilter] = useState<'all' | ContextType>('all');
@@ -110,10 +161,16 @@ export default function Home() {
   const [contextStatusFilter, setContextStatusFilter] = useState<LibraryStatusFilter>('active');
   const [decisionLibraryQuery, setDecisionLibraryQuery] = useState('');
   const [decisionStatusFilter, setDecisionStatusFilter] = useState<LibraryStatusFilter>('active');
+  const [isFinancePanelOpen, setIsFinancePanelOpen] = useState(false);
+  const [financeCategoryFilter, setFinanceCategoryFilter] = useState<'all' | FinanceCategory>('all');
+  const [financeStatusFilter, setFinanceStatusFilter] = useState<'all' | FinanceStatus>('all');
+  const [financeMonthFilter, setFinanceMonthFilter] = useState('');
+  const [financeQuery, setFinanceQuery] = useState('');
   const [uploadingContext, setUploadingContext] = useState(false);
   const contextUploadInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setIsMounted(true);
     store.load().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -124,6 +181,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (window.location.search.includes('outline=1')) {
+      setIsProjectOutlineOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!store.hydrated) return;
     const timer = window.setTimeout(() => {
       store.save().catch(() => undefined);
@@ -131,7 +194,7 @@ export default function Home() {
     return () => window.clearTimeout(timer);
     // Zustand actions are stable here; this effect intentionally tracks data snapshots.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.settings, store.projects, store.tasks, store.contexts, store.aiRecords, store.decisions, store.selectedProjectId, store.hydrated]);
+  }, [store.settings, store.projects, store.outlineStageGoals, store.outlineItems, store.tasks, store.contexts, store.aiRecords, store.decisions, store.finances, store.selectedProjectId, store.hydrated]);
 
   const selectedProject = useMemo(
     () => store.projects.find((project) => project.id === store.selectedProjectId) || store.projects[0],
@@ -173,6 +236,12 @@ export default function Home() {
   const projectTasks = store.tasks
     .filter((task) => task.projectId === selectedProject.id)
     .filter((task) => matches([task.title, task.description, task.notes, task.owner]));
+  const projectOutlineItems = store.outlineItems
+    .filter((item) => item.projectId === selectedProject.id)
+    .filter((item) => matches([item.task, item.note, item.stage, item.status]));
+  const projectOutlineStageGoals = store.outlineStageGoals
+    .filter((item) => item.projectId === selectedProject.id)
+    .filter((item) => matches([item.goal, item.stage]));
   const projectContexts = store.contexts
     .filter((context) => context.projectId === selectedProject.id)
     .filter((context) => matches([context.title, context.content, context.source, context.url]));
@@ -214,6 +283,21 @@ export default function Home() {
     const id = store.createTask(selectedProject.id);
     setActiveCard({ type: 'task', id });
   };
+  const createOutlineItem = (stage: Project['stage']) => {
+    store.createOutlineItem(selectedProject.id, stage);
+  };
+  const openProjectOutline = () => {
+    setIsProjectOutlineOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.set('outline', '1');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  };
+  const closeProjectOutline = () => {
+    setIsProjectOutlineOpen(false);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('outline');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  };
   const createAndOpenContext = () => {
     const id = store.createContext(selectedProject.id);
     setActiveCard({ type: 'context', id });
@@ -254,6 +338,9 @@ export default function Home() {
     const id = store.createDecision(selectedProject.id);
     setActiveCard({ type: 'decision', id });
   };
+  const openResourcePreview = (resource: ResourcePreview) => {
+    setResourcePreview(resource);
+  };
   const deleteSelectedProject = () => {
     const confirmed = window.confirm(`确定删除项目「${selectedProject.name}」吗？这个项目下的任务、上下文、AI Record 和决策都会一起删除。`);
     if (!confirmed) return;
@@ -270,49 +357,73 @@ export default function Home() {
         ? store.contexts.find((context) => context.id === activeCard.id)
         : activeCard?.type === 'decision'
           ? store.decisions.find((decision) => decision.id === activeCard.id)
-          : undefined;
+          : activeCard?.type === 'finance'
+            ? store.finances.find((finance) => finance.id === activeCard.id)
+            : undefined;
 
   return (
     <main className="min-h-screen bg-[#fff9ed] text-slate-950">
-      <div className="grid min-h-screen grid-cols-[300px_1fr]">
+      <div className={`grid min-h-screen transition-[grid-template-columns] duration-200 ${isSidebarCollapsed ? 'grid-cols-[72px_1fr]' : 'grid-cols-[300px_1fr]'}`}>
         <aside className="border-r border-orange-100 bg-[#fffdf8]">
-          <div className="sticky top-0 h-screen overflow-y-auto p-5">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#ff6b4a] text-white shadow-sm shadow-orange-200">
+          <div className={`sticky top-0 h-screen overflow-y-auto ${isSidebarCollapsed ? 'p-3' : 'p-5'}`}>
+            <div className={`mb-5 flex items-center ${isSidebarCollapsed ? 'flex-col gap-3' : 'gap-3'}`}>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#ff6b4a] text-white shadow-sm shadow-orange-200">
                 <Target size={18} />
               </div>
-              <div>
+              <div className={isSidebarCollapsed ? 'hidden' : 'min-w-0 flex-1'}>
                 <div className="text-sm font-semibold">AI Project Cockpit</div>
                 <div className="text-xs text-slate-500">产品研发自用驾驶舱</div>
               </div>
+              <button
+                type="button"
+                title={isSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+                aria-label={isSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+                aria-expanded={!isSidebarCollapsed}
+                onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-orange-100 bg-white text-slate-600 hover:bg-orange-50"
+              >
+                {isSidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+              </button>
             </div>
 
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-              <input
-                value={store.searchQuery}
-                onChange={(event) => store.setSearchQuery(event.target.value)}
-                placeholder="搜索项目..."
-                className="h-9 w-full rounded-md border border-orange-100 bg-white pl-9 pr-3 text-sm outline-none focus:border-orange-300"
+            {isSidebarCollapsed ? (
+              <CollapsedProjectRail
+                projects={filteredProjects}
+                tasks={store.tasks}
+                selectedProjectId={selectedProject.id}
+                onCreate={store.createProject}
+                onSelect={store.selectProject}
               />
-            </div>
+            ) : (
+              <>
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                  <input
+                    value={store.searchQuery}
+                    onChange={(event) => store.setSearchQuery(event.target.value)}
+                    placeholder="搜索项目..."
+                    className="h-9 w-full rounded-md border border-orange-100 bg-white pl-9 pr-3 text-sm outline-none focus:border-orange-300"
+                  />
+                </div>
 
-            <button
-              onClick={store.createProject}
-              className="mb-5 flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[#ff6b4a] text-sm font-medium text-white shadow-sm shadow-orange-200 hover:bg-[#f45f3d]"
-            >
-              <Plus size={16} />
-              新建项目
-            </button>
+                <button
+                  onClick={store.createProject}
+                  className="mb-5 flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[#ff6b4a] text-sm font-medium text-white shadow-sm shadow-orange-200 hover:bg-[#f45f3d]"
+                >
+                  <Plus size={16} />
+                  新建项目
+                </button>
 
-            <ProjectList
-              projects={filteredProjects}
-              tasks={store.tasks}
-              selectedProjectId={selectedProject.id}
-              canReorder={store.searchQuery.trim().length === 0}
-              onSelect={store.selectProject}
-              onReorder={store.reorderProjects}
-            />
+                <ProjectList
+                  projects={filteredProjects}
+                  tasks={store.tasks}
+                  selectedProjectId={selectedProject.id}
+                  canReorder={isMounted && store.searchQuery.trim().length === 0}
+                  onSelect={store.selectProject}
+                  onReorder={store.reorderProjects}
+                />
+              </>
+            )}
           </div>
         </aside>
 
@@ -324,6 +435,7 @@ export default function Home() {
               assignees={store.settings.assignees}
               onChange={(updates) => store.updateProject(selectedProject.id, updates)}
               onDelete={deleteSelectedProject}
+              onOpenOutline={openProjectOutline}
             />
 
             <div className="mt-6 space-y-5">
@@ -365,7 +477,7 @@ export default function Home() {
                   </>
                 )}
               >
-                <ContextGrid contexts={workspaceContexts} onChange={store.updateContext} onDelete={store.deleteContext} onOpen={(id) => setActiveCard({ type: 'context', id })} />
+                <ContextGrid contexts={workspaceContexts} onChange={store.updateContext} onDelete={store.deleteContext} onOpen={(id) => setActiveCard({ type: 'context', id })} onOpenResource={openResourcePreview} />
               </Section>
               <Section
                 icon={<Lightbulb size={17} />}
@@ -392,6 +504,7 @@ export default function Home() {
         onOpen={setActiveAIPanel}
       />
       <McpGuideButton isOpen={isMcpGuideOpen} onOpen={() => setIsMcpGuideOpen(true)} />
+      <FinanceFloatingButton isOpen={isFinancePanelOpen} onOpen={() => setIsFinancePanelOpen(true)} />
       <SettingsFloatingButton isOpen={isSettingsOpen} onOpen={() => setIsSettingsOpen(true)} />
       <input
         ref={contextUploadInputRef}
@@ -459,7 +572,7 @@ export default function Home() {
               onImportanceChange={setContextImportanceFilter}
               onStatusChange={setContextStatusFilter}
             />
-            <ContextGrid contexts={libraryContexts} onChange={store.updateContext} onDelete={store.deleteContext} onOpen={(id) => setActiveCard({ type: 'context', id })} />
+            <ContextGrid contexts={libraryContexts} onChange={store.updateContext} onDelete={store.deleteContext} onOpen={(id) => setActiveCard({ type: 'context', id })} onOpenResource={openResourcePreview} />
           </Section>
         ) : (
           <Section
@@ -479,6 +592,28 @@ export default function Home() {
           </Section>
         )}
       </KnowledgeDrawer>
+      <FinancePanel
+        isOpen={isFinancePanelOpen}
+        finances={store.finances}
+        projects={store.projects}
+        assignees={store.settings.assignees}
+        categoryFilter={financeCategoryFilter}
+        statusFilter={financeStatusFilter}
+        monthFilter={financeMonthFilter}
+        query={financeQuery}
+        onCategoryChange={setFinanceCategoryFilter}
+        onStatusChange={setFinanceStatusFilter}
+        onMonthChange={setFinanceMonthFilter}
+        onQueryChange={setFinanceQuery}
+        onCreate={() => {
+          const id = store.createFinance();
+          setActiveCard({ type: 'finance', id });
+        }}
+        onEdit={(id) => setActiveCard({ type: 'finance', id })}
+        onDelete={store.deleteFinance}
+        onOpenResource={openResourcePreview}
+        onClose={() => setIsFinancePanelOpen(false)}
+      />
       <SettingsDrawer
         isOpen={isSettingsOpen}
         settings={store.settings}
@@ -486,6 +621,20 @@ export default function Home() {
         onClose={() => setIsSettingsOpen(false)}
       />
       <McpGuideDrawer endpoint={mcpEndpoint} isOpen={isMcpGuideOpen} onClose={() => setIsMcpGuideOpen(false)} />
+      <ProjectOutlineModal
+        isOpen={isProjectOutlineOpen}
+        project={selectedProject}
+        focusMode={outlineFocusMode}
+        outlineStageGoals={projectOutlineStageGoals}
+        outlineItems={projectOutlineItems}
+        onClose={closeProjectOutline}
+        onProjectChange={(updates) => store.updateProject(selectedProject.id, updates)}
+        onFocusModeChange={setOutlineFocusMode}
+        onStageGoalChange={store.updateOutlineStageGoal}
+        onOutlineItemChange={store.updateOutlineItem}
+        onOutlineItemCreate={createOutlineItem}
+        onOutlineItemDelete={store.deleteOutlineItem}
+      />
       <CardDetailModal
         activeCard={activeCard}
         card={selectedCard}
@@ -493,8 +642,12 @@ export default function Home() {
         onTaskChange={store.updateTask}
         onContextChange={store.updateContext}
         onDecisionChange={store.updateDecision}
+        onFinanceChange={store.updateFinance}
+        onOpenResource={openResourcePreview}
         assignees={store.settings.assignees}
+        projects={store.projects}
       />
+      <ResourcePreviewModal resource={resourcePreview} onClose={() => setResourcePreview(null)} />
     </main>
   );
 }
@@ -519,6 +672,71 @@ function matchesLibraryStatus(item: { archived?: boolean; workspaceVisible?: boo
   if (status === 'archived') return isArchived(item);
   if (status === 'workspace') return isVisibleInWorkspace(item);
   return !isArchived(item);
+}
+
+function CollapsedProjectRail({
+  projects,
+  tasks,
+  selectedProjectId,
+  onCreate,
+  onSelect,
+}: {
+  projects: Project[];
+  tasks: TaskCard[];
+  selectedProjectId: string;
+  onCreate: () => void;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <button
+        type="button"
+        title="新建项目"
+        aria-label="新建项目"
+        onClick={onCreate}
+        className="flex h-10 w-10 items-center justify-center rounded-md bg-[#ff6b4a] text-white shadow-sm shadow-orange-200 hover:bg-[#f45f3d]"
+      >
+        <Plus size={17} />
+      </button>
+
+      <div className="mt-2 flex w-full flex-col items-center gap-2">
+        {projects.map((project) => {
+          const isActive = project.id === selectedProjectId;
+          const blocked = tasks.some((task) => task.projectId === project.id && task.status === 'blocked');
+
+          return (
+            <button
+              key={project.id}
+              type="button"
+              title={project.name}
+              aria-label={`切换到项目：${project.name}`}
+              onClick={() => onSelect(project.id)}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md border text-xs font-semibold transition ${
+                isActive
+                  ? 'border-[#ff6b4a] bg-[#fff0df] text-[#d94828] shadow-sm'
+                  : 'border-orange-100 bg-white text-slate-600 hover:border-orange-200 hover:bg-orange-50'
+              }`}
+            >
+              {getProjectInitials(project.name)}
+              {blocked && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-white bg-pink-500" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function getProjectInitials(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return '项';
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase();
+  }
+
+  return Array.from(trimmed).slice(0, 2).join('').toUpperCase();
 }
 
 function ProjectList({
@@ -681,12 +899,14 @@ function ProjectHeader({
   assignees,
   onChange,
   onDelete,
+  onOpenOutline,
 }: {
   project: Project;
   openTasks: number;
   assignees: string[];
   onChange: (updates: Partial<Project>) => void;
   onDelete: () => void;
+  onOpenOutline: () => void;
 }) {
   const [isOwnerPickerOpen, setIsOwnerPickerOpen] = useState(false);
   const ownerOptions = getAssigneeOptions(assignees, project.owner);
@@ -707,6 +927,17 @@ function ProjectHeader({
           />
         </div>
         <div className="flex shrink-0 gap-2">
+          <a
+            href="?outline=1"
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenOutline();
+            }}
+            className="flex h-9 items-center gap-1.5 rounded-md border border-teal-100 bg-white px-3 text-xs font-medium text-teal-700 hover:bg-teal-50"
+          >
+            <ListTodo size={14} />
+            项目大纲
+          </a>
           <select value={project.status} onChange={(event) => onChange({ status: event.target.value as Project['status'] })} className="rounded-md border border-orange-100 bg-orange-50 px-3 py-2 text-xs">
             <option value="active">推进中</option>
             <option value="paused">暂停</option>
@@ -798,6 +1029,242 @@ function Metric({ label, value, onClick }: { label: string; value: string; onCli
       <div className="mt-1 truncate text-sm font-medium">{value}</div>
     </div>
   );
+}
+
+const projectStageOrder: Project['stage'][] = ['exploring', 'planning', 'building', 'testing', 'launched'];
+
+function ProjectOutlineModal({
+  isOpen,
+  project,
+  focusMode,
+  outlineStageGoals,
+  outlineItems,
+  onClose,
+  onProjectChange,
+  onFocusModeChange,
+  onStageGoalChange,
+  onOutlineItemChange,
+  onOutlineItemCreate,
+  onOutlineItemDelete,
+}: {
+  isOpen: boolean;
+  project: Project;
+  focusMode: OutlineFocusMode;
+  outlineStageGoals: ProjectOutlineStageGoal[];
+  outlineItems: ProjectOutlineItem[];
+  onClose: () => void;
+  onProjectChange: (updates: Partial<Project>) => void;
+  onFocusModeChange: (mode: OutlineFocusMode) => void;
+  onStageGoalChange: (projectId: string, stage: Project['stage'], goal: string) => void;
+  onOutlineItemChange: (id: string, updates: Partial<ProjectOutlineItem>) => void;
+  onOutlineItemCreate: (stage: Project['stage']) => void;
+  onOutlineItemDelete: (id: string) => void;
+}) {
+  if (!isOpen) return null;
+
+  const visibleStages = focusMode === 'current' ? [project.stage] : projectStageOrder;
+  const visibleOutlineItems = outlineItems.filter((item) => visibleStages.includes(item.stage));
+  const outlineStats = getOutlineStats(visibleOutlineItems);
+  const progressPercent = visibleOutlineItems.length > 0 ? Math.round((outlineStats.done / visibleOutlineItems.length) * 100) : 0;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/20 backdrop-blur-[1px]">
+      <section className="mx-auto flex h-full w-full max-w-7xl flex-col bg-[#fffdf8] shadow-2xl shadow-slate-900/20">
+        <div className="border-b border-orange-100 px-6 py-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-teal-800">
+                <ListTodo size={17} />
+                项目大纲
+                <span className="rounded bg-teal-50 px-1.5 py-0.5 text-xs">{progressPercent}%</span>
+              </div>
+              <input
+                value={project.name}
+                onChange={(event) => onProjectChange({ name: event.target.value })}
+                className="w-full bg-transparent text-2xl font-semibold text-slate-950 outline-none"
+              />
+              <input
+                value={project.oneLiner}
+                onChange={(event) => onProjectChange({ oneLiner: event.target.value })}
+                className="mt-1 w-full bg-transparent text-sm text-slate-600 outline-none"
+              />
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="flex h-9 overflow-hidden rounded-md border border-teal-100 bg-white">
+                <button
+                  type="button"
+                  onClick={() => onFocusModeChange('current')}
+                  className={`px-3 text-xs font-medium ${focusMode === 'current' ? 'bg-teal-600 text-white' : 'text-teal-700 hover:bg-teal-50'}`}
+                >
+                  当前阶段
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onFocusModeChange('all')}
+                  className={`border-l border-teal-100 px-3 text-xs font-medium ${focusMode === 'all' ? 'bg-teal-600 text-white' : 'text-teal-700 hover:bg-teal-50'}`}
+                >
+                  全部阶段
+                </button>
+              </div>
+              <select value={project.stage} onChange={(event) => onProjectChange({ stage: event.target.value as Project['stage'] })} className="h-9 rounded-md border border-teal-100 bg-teal-50 px-3 text-xs outline-none">
+                {projectStageOrder.map((stage) => (
+                  <option key={stage} value={stage}>{stageLabel[stage]}</option>
+                ))}
+              </select>
+              <button title="关闭" aria-label="关闭" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-[1fr_420px]">
+            <textarea
+              value={project.summary}
+              onChange={(event) => onProjectChange({ summary: event.target.value })}
+              rows={3}
+              placeholder="项目规划目标、范围和当前判断"
+              className="w-full resize-none rounded-md border border-orange-100 bg-white p-3 text-sm leading-6 text-slate-700 outline-none focus:border-orange-300"
+            />
+            <div className="grid grid-cols-4 gap-2">
+              <OutlineStat label="显示" value={visibleOutlineItems.length} />
+              <OutlineStat label="进行中" value={outlineStats.doing} />
+              <OutlineStat label="风险" value={outlineStats.risk} />
+              <OutlineStat label="完成" value={outlineStats.done} />
+            </div>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+            <div className="grid grid-cols-[120px_minmax(320px,1.5fr)_130px_minmax(180px,0.8fr)_64px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+              <div>阶段</div>
+              <div>主要任务</div>
+              <div>状态</div>
+              <div>备注</div>
+              <div className="text-right">操作</div>
+            </div>
+            {visibleStages.map((stage) => (
+              <OutlineStageRows
+                key={stage}
+                stage={stage}
+                isCurrent={stage === project.stage}
+                goal={outlineStageGoals.find((item) => item.stage === stage)?.goal || ''}
+                items={outlineItems.filter((item) => item.stage === stage)}
+                onGoalChange={(goal) => onStageGoalChange(project.id, stage, goal)}
+                onItemChange={onOutlineItemChange}
+                onItemCreate={onOutlineItemCreate}
+                onItemDelete={onOutlineItemDelete}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OutlineStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-teal-100 bg-teal-50 p-3">
+      <div className="text-[11px] text-teal-700">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function OutlineStageRows({
+  stage,
+  isCurrent,
+  goal,
+  items,
+  onGoalChange,
+  onItemChange,
+  onItemCreate,
+  onItemDelete,
+}: {
+  stage: Project['stage'];
+  isCurrent: boolean;
+  goal: string;
+  items: ProjectOutlineItem[];
+  onGoalChange: (goal: string) => void;
+  onItemChange: (id: string, updates: Partial<ProjectOutlineItem>) => void;
+  onItemCreate: (stage: Project['stage']) => void;
+  onItemDelete: (id: string) => void;
+}) {
+  const ordered = orderOutlineItems(items);
+  const doneCount = ordered.filter((item) => item.status === 'done').length;
+
+  return (
+    <div className={`border-b border-slate-100 last:border-b-0 ${isCurrent ? 'bg-teal-50/30 ring-1 ring-inset ring-teal-100' : ''}`}>
+      <div className={`grid grid-cols-[120px_minmax(320px,1.5fr)_130px_minmax(180px,0.8fr)_64px] items-center px-3 py-2 text-xs ${isCurrent ? 'bg-teal-50' : 'bg-[#fffaf1]'}`}>
+        <div className="font-semibold text-slate-800">
+          {stageLabel[stage]}
+          {isCurrent && <span className="ml-2 rounded bg-teal-600 px-1.5 py-0.5 text-[10px] font-medium text-white">当前</span>}
+        </div>
+        <div className="col-span-3 text-slate-500">{ordered.length === 0 ? '这个阶段还没有主要任务' : `${doneCount}/${ordered.length} 已完成`}</div>
+        <div className="flex justify-end">
+          <button type="button" onClick={() => onItemCreate(stage)} className="flex h-7 items-center gap-1 rounded-md border border-orange-100 bg-white px-2 text-xs font-medium text-orange-700 hover:bg-orange-50">
+            <Plus size={13} />
+            添加
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-[120px_1fr] border-t border-slate-100 px-3 py-3">
+        <div className="pt-1 text-xs font-medium text-slate-500">阶段目标</div>
+        <textarea
+          value={goal}
+          onChange={(event) => onGoalChange(event.target.value)}
+          rows={2}
+          placeholder="这个阶段总体要达成什么"
+          className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm leading-5 text-slate-800 outline-none focus:border-teal-300"
+        />
+      </div>
+      {ordered.map((item) => (
+        <div key={item.id} className="grid grid-cols-[120px_minmax(320px,1.5fr)_130px_minmax(180px,0.8fr)_64px] items-start gap-0 border-t border-slate-100 px-3 py-2">
+          <select value={item.stage} onChange={(event) => onItemChange(item.id, { stage: event.target.value as Project['stage'] })} className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs outline-none">
+            {projectStageOrder.map((item) => (
+              <option key={item} value={item}>{stageLabel[item]}</option>
+            ))}
+          </select>
+          <div className="px-2">
+            <textarea value={item.task} onChange={(event) => onItemChange(item.id, { task: event.target.value })} rows={2} placeholder="主要任务或关键事项" className="w-full resize-none bg-transparent text-sm leading-5 text-slate-700 outline-none" />
+          </div>
+          <select value={item.status} onChange={(event) => onItemChange(item.id, { status: event.target.value as OutlineStatus })} className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs outline-none">
+            {Object.entries(outlineStatusLabel).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <textarea value={item.note} onChange={(event) => onItemChange(item.id, { note: event.target.value })} rows={2} placeholder="备注" className="w-full resize-none bg-transparent px-2 text-xs leading-5 text-slate-500 outline-none" />
+          <div className="flex justify-end">
+            <button type="button" title="删除大纲项" aria-label="删除大纲项" onClick={() => onItemDelete(item.id)} className="flex h-8 w-8 items-center justify-center rounded-md border border-pink-100 bg-white text-pink-600 hover:bg-pink-50">
+              <Trash2 size={13} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getOutlineStats(items: ProjectOutlineItem[]) {
+  return {
+    notStarted: items.filter((item) => item.status === 'not_started').length,
+    doing: items.filter((item) => item.status === 'doing').length,
+    risk: items.filter((item) => item.status === 'risk').length,
+    done: items.filter((item) => item.status === 'done').length,
+  };
+}
+
+function orderOutlineItems(items: ProjectOutlineItem[]) {
+  const statusOrder: Record<OutlineStatus, number> = { risk: 0, doing: 1, not_started: 2, done: 3 };
+
+  return [...items]
+    .sort((a, b) => {
+      const byStatus = statusOrder[a.status] - statusOrder[b.status];
+      if (byStatus !== 0) return byStatus;
+      const byOrder = a.order - b.order;
+      if (byOrder !== 0) return byOrder;
+      return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+    });
 }
 
 function WeeklyFocus({ project, onChange }: { project: Project; onChange: (weeklyFocus: string[]) => void }) {
@@ -1704,20 +2171,26 @@ function CardDetailModal({
   onTaskChange,
   onContextChange,
   onDecisionChange,
+  onFinanceChange,
+  onOpenResource,
   assignees,
+  projects,
 }: {
   activeCard: ActiveCard | null;
-  card: TaskCard | ContextCard | DecisionCard | undefined;
+  card: TaskCard | ContextCard | DecisionCard | FinanceCard | undefined;
   onClose: () => void;
   onTaskChange: (id: string, updates: Partial<TaskCard>) => void;
   onContextChange: (id: string, updates: Partial<ContextCard>) => void;
   onDecisionChange: (id: string, updates: Partial<DecisionCard>) => void;
+  onFinanceChange: (id: string, updates: Partial<FinanceCard>) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
   assignees: string[];
+  projects: Project[];
 }) {
   if (!activeCard || !card) return null;
 
-  const title = activeCard.type === 'task' ? '任务详情' : activeCard.type === 'context' ? '上下文详情' : '决策详情';
-  const tone = activeCard.type === 'task' ? 'orange' : activeCard.type === 'context' ? 'teal' : 'amber';
+  const title = activeCard.type === 'task' ? '任务详情' : activeCard.type === 'context' ? '上下文详情' : activeCard.type === 'finance' ? '开支详情' : '决策详情';
+  const tone = activeCard.type === 'task' ? 'orange' : activeCard.type === 'context' ? 'teal' : activeCard.type === 'finance' ? 'emerald' : 'amber';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/20 p-6 backdrop-blur-[1px]" onClick={onClose}>
@@ -1728,7 +2201,7 @@ function CardDetailModal({
         <div className="flex items-start justify-between gap-4 border-b border-orange-100 px-5 py-4">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <Maximize2 size={16} className={tone === 'teal' ? 'text-teal-600' : tone === 'amber' ? 'text-amber-600' : 'text-orange-600'} />
+              <Maximize2 size={16} className={tone === 'teal' ? 'text-teal-600' : tone === 'amber' ? 'text-amber-600' : tone === 'emerald' ? 'text-emerald-600' : 'text-orange-600'} />
               {title}
             </div>
             <div className="mt-1 text-xs text-slate-500">小卡片负责预览，详细阅读和编辑在这里完成。</div>
@@ -1742,15 +2215,148 @@ function CardDetailModal({
             <TaskDetailEditor task={card as TaskCard} assignees={assignees} onChange={onTaskChange} />
           )}
           {activeCard.type === 'context' && (
-            <ContextDetailEditor context={card as ContextCard} onChange={onContextChange} />
+            <ContextDetailEditor context={card as ContextCard} onChange={onContextChange} onOpenResource={onOpenResource} />
           )}
           {activeCard.type === 'decision' && (
             <DecisionDetailEditor decision={card as DecisionCard} onChange={onDecisionChange} />
+          )}
+          {activeCard.type === 'finance' && (
+            <FinanceDetailEditor finance={card as FinanceCard} assignees={assignees} projects={projects} onChange={onFinanceChange} onOpenResource={onOpenResource} />
           )}
         </div>
       </section>
     </div>
   );
+}
+
+function ResourcePreviewModal({ resource, onClose }: { resource: ResourcePreview | null; onClose: () => void }) {
+  if (!resource) return null;
+
+  const info = getResourceInfo(resource.url);
+  const canEmbed = info.kind === 'image' || (!info.isExternal && ['pdf', 'text'].includes(info.kind));
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 p-6 backdrop-blur-[1px]" onClick={onClose}>
+      <section
+        onClick={(event) => event.stopPropagation()}
+        className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-md border border-teal-100 bg-[#fffdf8] shadow-2xl shadow-slate-900/25"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-teal-100 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <FileText size={17} className="text-teal-700" />
+              资源预览
+            </div>
+            <div className="mt-1 truncate text-xs text-slate-500">{resource.title}</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {info.isUploadedFile && (
+              <a
+                href={resource.url}
+                download={info.filename}
+                className="flex h-8 items-center gap-1.5 rounded-md border border-teal-100 bg-white px-3 text-xs font-medium text-teal-700 hover:bg-teal-50"
+              >
+                <Download size={13} />
+                下载
+              </a>
+            )}
+            <CopyButton value={resource.url} label="复制资源链接" />
+            <a
+              href={resource.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex h-8 items-center gap-1.5 rounded-md border border-orange-100 bg-white px-3 text-xs font-medium text-orange-700 hover:bg-orange-50"
+            >
+              <ExternalLink size={13} />
+              {info.isExternal ? '打开外链' : '新窗口打开'}
+            </a>
+            <button title="关闭" aria-label="关闭" onClick={onClose} className="rounded-md border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="border-b border-teal-50 bg-teal-50/40 px-5 py-3 text-xs leading-5 text-slate-600">
+          <span className="font-medium text-teal-800">{info.label}</span>
+          <span className="mx-2 text-slate-300">/</span>
+          <span className="break-all">{resource.url}</span>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto bg-white p-4">
+          {canEmbed ? (
+            <ResourceEmbed resource={resource} kind={info.kind} />
+          ) : (
+            <div className="flex min-h-[360px] flex-col items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 px-6 text-center">
+              <FileText size={34} className="mb-3 text-slate-400" />
+              <div className="text-sm font-semibold text-slate-800">{info.isExternal ? '外部链接不在页面内强制嵌入' : '这个文件类型暂不支持内嵌预览'}</div>
+              <p className="mt-2 max-w-md text-xs leading-6 text-slate-500">
+                {info.isExternal
+                  ? '外部网站可能有跨站限制，也可能包含登录态或跳转。这里先保留在 Cockpit 内确认，再由你决定是否打开。'
+                  : '当前先提供下载和新窗口打开，后续可以为 Word、Excel、PPT 等类型接入专门的解析或预览服务。'}
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ResourceEmbed({ resource, kind }: { resource: ResourcePreview; kind: ResourceInfo['kind'] }) {
+  if (kind === 'image') {
+    return (
+      <div className="flex min-h-[360px] items-center justify-center rounded-md bg-slate-50 p-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={resource.url} alt={resource.title} className="max-h-[68vh] max-w-full rounded-md object-contain" />
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      title={resource.title}
+      src={resource.url}
+      className="h-[68vh] w-full rounded-md border border-slate-200 bg-white"
+    />
+  );
+}
+
+type ResourceInfo = {
+  filename: string;
+  isExternal: boolean;
+  isUploadedFile: boolean;
+  kind: 'image' | 'pdf' | 'text' | 'other';
+  label: string;
+};
+
+function getResourceInfo(url: string): ResourceInfo {
+  const trimmed = url.trim();
+  const parsed = safeParseUrl(trimmed);
+  const pathname = parsed?.pathname || trimmed.split('?')[0] || '';
+  const filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || 'resource');
+  const extension = filename.split('.').pop()?.toLowerCase() || '';
+  const isExternal = /^https?:\/\//i.test(trimmed) && !pathname.startsWith('/uploads/');
+  const isUploadedFile = pathname.startsWith('/uploads/');
+
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(extension)) {
+    return { filename, isExternal, isUploadedFile, kind: 'image', label: isUploadedFile ? '上传图片' : '图片链接' };
+  }
+  if (extension === 'pdf') {
+    return { filename, isExternal, isUploadedFile, kind: 'pdf', label: isUploadedFile ? '上传 PDF' : 'PDF 链接' };
+  }
+  if (['txt', 'md', 'csv', 'json'].includes(extension)) {
+    return { filename, isExternal, isUploadedFile, kind: 'text', label: isUploadedFile ? '上传文本文件' : '文本链接' };
+  }
+
+  return { filename, isExternal, isUploadedFile, kind: 'other', label: isExternal ? '外部链接' : isUploadedFile ? '上传文件' : '资源链接' };
+}
+
+function safeParseUrl(url: string) {
+  try {
+    return new URL(url, 'http://cockpit.local');
+  } catch {
+    return null;
+  }
 }
 
 function TaskDetailEditor({ task, assignees, onChange }: { task: TaskCard; assignees: string[]; onChange: (id: string, updates: Partial<TaskCard>) => void }) {
@@ -1786,7 +2392,15 @@ function TaskDetailEditor({ task, assignees, onChange }: { task: TaskCard; assig
   );
 }
 
-function ContextDetailEditor({ context, onChange }: { context: ContextCard; onChange: (id: string, updates: Partial<ContextCard>) => void }) {
+function ContextDetailEditor({
+  context,
+  onChange,
+  onOpenResource,
+}: {
+  context: ContextCard;
+  onChange: (id: string, updates: Partial<ContextCard>) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+}) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
@@ -1816,10 +2430,14 @@ function ContextDetailEditor({ context, onChange }: { context: ContextCard; onCh
       <textarea value={context.content} onChange={(event) => onChange(context.id, { content: event.target.value })} rows={9} placeholder="上下文内容" className="w-full resize-none rounded-md border border-teal-100 bg-[#f2fbf7] p-3 text-sm leading-6 text-slate-700 outline-none focus:border-teal-300" />
       <input value={context.url} onChange={(event) => onChange(context.id, { url: event.target.value })} placeholder="链接，可选" className="h-10 w-full rounded-md border border-teal-100 bg-white px-3 text-sm outline-none" />
       {context.url && (
-        <a href={context.url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-teal-100 bg-white px-3 text-xs font-medium text-teal-700 hover:bg-teal-50">
+        <button
+          type="button"
+          onClick={() => onOpenResource({ title: context.title || '上下文资源', url: context.url })}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-teal-100 bg-white px-3 text-xs font-medium text-teal-700 hover:bg-teal-50"
+        >
           <FileText size={13} />
-          打开文件/链接
-        </a>
+          预览文件/链接
+        </button>
       )}
     </div>
   );
@@ -1963,7 +2581,19 @@ function TaskGrid({
   );
 }
 
-function ContextGrid({ contexts, onChange, onDelete, onOpen }: { contexts: ContextCard[]; onChange: (id: string, updates: Partial<ContextCard>) => void; onDelete: (id: string) => void; onOpen: (id: string) => void }) {
+function ContextGrid({
+  contexts,
+  onChange,
+  onDelete,
+  onOpen,
+  onOpenResource,
+}: {
+  contexts: ContextCard[];
+  onChange: (id: string, updates: Partial<ContextCard>) => void;
+  onDelete: (id: string) => void;
+  onOpen: (id: string) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+}) {
   return (
     <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
       {contexts.length === 0 && <EmptySection text="还没有上下文，把 PRD、反馈或技术判断先丢进来。" />}
@@ -2008,9 +2638,11 @@ function ContextGrid({ contexts, onChange, onDelete, onOpen }: { contexts: Conte
           {context.url && (
             <a
               href={context.url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenResource({ title: context.title || '上下文资源', url: context.url });
+              }}
               className="mt-2 block truncate rounded border border-teal-100 bg-white px-2 py-1.5 text-xs text-teal-700 hover:bg-teal-50"
             >
               {context.url}
@@ -2219,6 +2851,446 @@ function EmptySection({ text }: { text: string }) {
   return (
     <div className="col-span-full rounded-md border border-dashed border-orange-200 bg-orange-50/50 p-4 text-sm text-slate-500">
       {text}
+    </div>
+  );
+}
+
+// ─── Finance Floating Button ───
+
+function FinanceFloatingButton({ isOpen, onOpen }: { isOpen: boolean; onOpen: () => void }) {
+  return (
+    <button
+      title="财务管理"
+      aria-label="财务管理"
+      onClick={onOpen}
+      className={`group fixed bottom-32 right-5 z-30 flex h-12 w-12 items-center justify-center rounded-md border shadow-lg transition ${
+        isOpen ? 'border-emerald-500 bg-emerald-600 text-white shadow-emerald-200' : 'border-emerald-100 bg-white text-emerald-700 shadow-emerald-100 hover:border-emerald-200 hover:bg-emerald-50'
+      }`}
+    >
+      <Wallet size={20} />
+      <span className="pointer-events-none absolute bottom-14 right-0 whitespace-nowrap rounded bg-slate-950 px-2 py-1 text-xs text-white opacity-0 shadow-sm transition group-hover:opacity-100">
+        财务管理
+      </span>
+    </button>
+  );
+}
+
+// ─── Finance Panel ───
+
+function FinancePanel({
+  isOpen,
+  finances,
+  projects,
+  assignees,
+  categoryFilter,
+  statusFilter,
+  monthFilter,
+  query,
+  onCategoryChange,
+  onStatusChange,
+  onMonthChange,
+  onQueryChange,
+  onCreate,
+  onEdit,
+  onDelete,
+  onOpenResource,
+  onClose,
+}: {
+  isOpen: boolean;
+  finances: FinanceCard[];
+  projects: Project[];
+  assignees: string[];
+  categoryFilter: 'all' | FinanceCategory;
+  statusFilter: 'all' | FinanceStatus;
+  monthFilter: string;
+  query: string;
+  onCategoryChange: (v: 'all' | FinanceCategory) => void;
+  onStatusChange: (v: 'all' | FinanceStatus) => void;
+  onMonthChange: (v: string) => void;
+  onQueryChange: (v: string) => void;
+  onCreate: () => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+  onClose: () => void;
+}) {
+  if (!isOpen) return null;
+
+  const q = query.trim().toLowerCase();
+  const filtered = finances.filter((f) => {
+    if (q && ![f.title, f.description, f.payer, String(f.amount)].some((field) => field.toLowerCase().includes(q))) return false;
+    if (categoryFilter !== 'all' && f.category !== categoryFilter) return false;
+    if (statusFilter !== 'all' && f.status !== statusFilter) return false;
+    if (monthFilter && !f.date.startsWith(monthFilter)) return false;
+    return true;
+  });
+
+  const totalAmount = filtered.reduce((sum, f) => sum + f.amount, 0);
+  const pendingCount = filtered.filter((f) => f.status === 'pending').length;
+  const approvedCount = filtered.filter((f) => f.status === 'approved').length;
+  const reimbursedCount = filtered.filter((f) => f.status === 'reimbursed').length;
+
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  const thisMonthTotal = finances.filter((f) => f.date.startsWith(thisMonth)).reduce((sum, f) => sum + f.amount, 0);
+  const lastMonthTotal = finances.filter((f) => f.date.startsWith(lastMonth)).reduce((sum, f) => sum + f.amount, 0);
+  const monthDiff = lastMonthTotal > 0 ? ((thisMonthTotal - lastMonthTotal) / lastMonthTotal * 100).toFixed(1) : thisMonthTotal > 0 ? '100' : '0';
+
+  return (
+    <div className="fixed inset-0 z-40 bg-slate-950/10 backdrop-blur-[1px]">
+      <aside className="ml-auto flex h-full w-full max-w-[1100px] flex-col border-l border-emerald-100 bg-[#fffdf8] shadow-2xl shadow-slate-900/15">
+        <div className="flex items-start justify-between gap-4 border-b border-emerald-100 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+              <Wallet size={17} />
+              财务管理
+            </div>
+            <div className="mt-1 text-xs leading-5 text-slate-500">记录团队开支，管理凭据，掌握资金流向。</div>
+          </div>
+          <button title="关闭" aria-label="关闭" onClick={onClose} className="rounded-md border border-emerald-100 bg-white p-2 text-slate-500 hover:bg-emerald-50">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {/* 统计摘要 */}
+          <div className="mb-5 rounded-md border border-emerald-100 bg-gradient-to-r from-emerald-50/80 to-teal-50/60 p-4">
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div>
+                <div className="text-[11px] text-slate-500">筛选后总额</div>
+                <div className="mt-1 text-2xl font-bold text-emerald-700">¥{totalAmount.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">本月支出</div>
+                <div className="mt-1 text-lg font-semibold text-slate-800">¥{thisMonthTotal.toLocaleString()}</div>
+                <div className={`text-[11px] ${Number(monthDiff) > 0 ? 'text-amber-600' : Number(monthDiff) < 0 ? 'text-teal-600' : 'text-slate-400'}`}>
+                  {Number(monthDiff) > 0 ? '↑' : Number(monthDiff) < 0 ? '↓' : '—'} 较上月 {Math.abs(Number(monthDiff))}%
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-amber-600">{pendingCount}</div>
+                  <div className="text-[10px] text-slate-500">待处理</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-emerald-600">{approvedCount}</div>
+                  <div className="text-[10px] text-slate-500">已审批</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-teal-600">{reimbursedCount}</div>
+                  <div className="text-[10px] text-slate-500">已报销</div>
+                </div>
+              </div>
+              <div className="text-right text-xs text-slate-500">
+                共 {filtered.length} 条记录<br />总计 {finances.length} 条
+              </div>
+            </div>
+          </div>
+
+          {/* 工具栏 */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <input
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="搜索用途、说明、付款人..."
+                className="h-8 w-full rounded-md border border-emerald-100 bg-white pl-8 pr-3 text-xs outline-none focus:border-emerald-300"
+              />
+            </div>
+            <select value={categoryFilter} onChange={(event) => onCategoryChange(event.target.value as 'all' | FinanceCategory)} className="h-8 rounded-md border border-emerald-100 bg-white px-2 text-xs">
+              <option value="all">全部分类</option>
+              {Object.entries(financeCategoryLabel).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+            <select value={statusFilter} onChange={(event) => onStatusChange(event.target.value as 'all' | FinanceStatus)} className="h-8 rounded-md border border-emerald-100 bg-white px-2 text-xs">
+              <option value="all">全部状态</option>
+              {Object.entries(financeStatusLabel).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+            <input
+              type="month"
+              value={monthFilter}
+              onChange={(event) => onMonthChange(event.target.value)}
+              className="h-8 rounded-md border border-emerald-100 bg-white px-2 text-xs"
+            />
+            {monthFilter && (
+              <button onClick={() => onMonthChange('')} className="text-xs text-slate-400 hover:text-slate-600">清除月份</button>
+            )}
+            <button
+              onClick={onCreate}
+              className="flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-3 text-xs font-medium text-white shadow-sm shadow-emerald-200 hover:bg-emerald-700"
+            >
+              <Plus size={14} />
+              新开支
+            </button>
+          </div>
+
+          {/* 卡片网格 */}
+          <FinanceGrid finances={filtered} projects={projects} onEdit={onEdit} onDelete={onDelete} onOpenResource={onOpenResource} />
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+// ─── Finance Grid ───
+
+function FinanceGrid({
+  finances,
+  projects,
+  onEdit,
+  onDelete,
+  onOpenResource,
+}: {
+  finances: FinanceCard[];
+  projects: Project[];
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+}) {
+  const sorted = [...finances].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+
+  return (
+    <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+      {sorted.length === 0 && <EmptySection text="还没有开支记录，点击「新开支」开始记录。" />}
+      {sorted.map((finance) => {
+        const linkedProject = finance.projectId ? projects.find((p) => p.id === finance.projectId) : null;
+        return (
+          <article
+            key={finance.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onEdit(finance.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') onEdit(finance.id);
+            }}
+            className="group cursor-pointer rounded-md border border-emerald-100 bg-emerald-50/40 p-3 transition hover:border-emerald-200 hover:shadow-sm hover:shadow-emerald-100"
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <span className={`rounded border px-2 py-0.5 text-[11px] ${financeCategoryStyle[finance.category]}`}>
+                {financeCategoryLabel[finance.category]}
+              </span>
+              <div className="flex items-center gap-1">
+                <span className={`rounded border px-2 py-0.5 text-[11px] ${financeStatusStyle[finance.status]}`}>
+                  {financeStatusLabel[finance.status]}
+                </span>
+                <IconButton label="删除" onClick={() => onDelete(finance.id)} />
+              </div>
+            </div>
+            <div className="mb-1 line-clamp-1 text-sm font-semibold">{finance.title || '未命名开支'}</div>
+            <div className="mb-2 text-xl font-bold text-emerald-700">¥{finance.amount.toLocaleString()}</div>
+            <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <span>{finance.date || '未填日期'}</span>
+              <span>{finance.payer || '未指定'}</span>
+            </div>
+            {linkedProject && (
+              <div className="mt-1 text-[11px] text-slate-400">关联：{linkedProject.name}</div>
+            )}
+            {finance.receipts.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {finance.receipts.map((receipt, idx) => (
+                  <a
+                    key={idx}
+                    href={receipt.url}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onOpenResource({ title: receipt.name || finance.title || '凭据', url: receipt.url });
+                    }}
+                    className="block truncate rounded border border-emerald-100 bg-white px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
+                  >
+                    {receipt.type === 'file' ? '📎 ' : '🔗 '}{receipt.name || receipt.url}
+                  </a>
+                ))}
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Finance Detail Editor ───
+
+function FinanceDetailEditor({
+  finance,
+  assignees,
+  projects,
+  onChange,
+  onOpenResource,
+}: {
+  finance: FinanceCard;
+  assignees: string[];
+  projects: Project[];
+  onChange: (id: string, updates: Partial<FinanceCard>) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+}) {
+  const receiptUploadRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const getAssigneeOptions = (list: string[], current: string) => {
+    const options = [...list];
+    if (current && !options.includes(current)) options.push(current);
+    return options;
+  };
+
+  const uploadReceipt = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        window.alert(`上传失败：${error.error || '未知错误'}`);
+        return;
+      }
+
+      const uploaded = (await res.json()) as UploadResponse;
+      onChange(finance.id, {
+        receipts: [...finance.receipts, { url: uploaded.url, type: 'file' as const, name: uploaded.originalName || file.name }],
+      });
+    } catch {
+      window.alert('上传失败，请重试');
+    } finally {
+      setUploading(false);
+      event.target.value = '';
+    }
+  };
+
+  const addLinkReceipt = () => {
+    const url = window.prompt('请输入凭据链接：');
+    if (!url?.trim()) return;
+    onChange(finance.id, {
+      receipts: [...finance.receipts, { url: url.trim(), type: 'link' as const }],
+    });
+  };
+
+  const removeReceipt = (index: number) => {
+    onChange(finance.id, {
+      receipts: finance.receipts.filter((_, i) => i !== index),
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <select value={finance.category} onChange={(event) => onChange(finance.id, { category: event.target.value as FinanceCategory })} className="rounded-md border border-emerald-100 bg-white px-3 py-2 text-sm">
+          {Object.entries(financeCategoryLabel).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <select value={finance.status} onChange={(event) => onChange(finance.id, { status: event.target.value as FinanceStatus })} className={`rounded-md border px-3 py-2 text-sm ${financeStatusStyle[finance.status]}`}>
+          {Object.entries(financeStatusLabel).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <input type="date" value={finance.date} onChange={(event) => onChange(finance.id, { date: event.target.value })} className="rounded-md border border-emerald-100 bg-white px-3 py-2 text-sm" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-[11px] text-slate-500">金额（元）</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={finance.amount || ''}
+            onChange={(event) => onChange(finance.id, { amount: Math.max(0, Number(event.target.value)) })}
+            className="w-full rounded-md border border-emerald-100 bg-white px-3 py-2 text-lg font-semibold text-emerald-700 outline-none focus:border-emerald-300"
+            placeholder="0.00"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] text-slate-500">付款人</label>
+          <select value={finance.payer} onChange={(event) => onChange(finance.id, { payer: event.target.value })} className="w-full rounded-md border border-emerald-100 bg-white px-3 py-2 text-sm">
+            <option value="">未指定</option>
+            {getAssigneeOptions(assignees, finance.payer).map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <input value={finance.title} onChange={(event) => onChange(finance.id, { title: event.target.value })} className="w-full bg-transparent text-2xl font-semibold outline-none" placeholder="用途/摘要" />
+      <textarea value={finance.description} onChange={(event) => onChange(finance.id, { description: event.target.value })} rows={5} placeholder="说明（可选）" className="w-full resize-none rounded-md border border-emerald-100 bg-emerald-50/40 p-3 text-sm leading-6 text-slate-700 outline-none focus:border-emerald-300" />
+      <div>
+        <label className="mb-1 block text-[11px] text-slate-500">关联项目（可选）</label>
+        <select value={finance.projectId || ''} onChange={(event) => onChange(finance.id, { projectId: event.target.value || null })} className="w-full rounded-md border border-emerald-100 bg-white px-3 py-2 text-sm">
+          <option value="">不关联项目</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 凭据区域 */}
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <label className="text-[11px] text-slate-500">凭据材料（{finance.receipts.length}）</label>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={addLinkReceipt}
+              className="flex h-7 items-center gap-1 rounded-md border border-emerald-100 bg-white px-2.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50"
+            >
+              <ExternalLink size={11} />
+              添加链接
+            </button>
+            <button
+              type="button"
+              onClick={() => receiptUploadRef.current?.click()}
+              disabled={uploading}
+              className="flex h-7 items-center gap-1 rounded-md border border-emerald-100 bg-white px-2.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Upload size={11} />
+              {uploading ? '上传中...' : '上传文件'}
+            </button>
+          </div>
+        </div>
+        <input
+          ref={receiptUploadRef}
+          type="file"
+          className="hidden"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.txt,.csv,.json,.jpg,.jpeg,.png,.webp,.gif"
+          onChange={uploadReceipt}
+        />
+        {finance.receipts.length === 0 ? (
+          <div className="rounded-md border border-dashed border-emerald-200 bg-emerald-50/30 p-3 text-center text-xs text-slate-400">
+            暂无凭据，可上传文件或添加链接
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {finance.receipts.map((receipt, idx) => (
+              <div key={idx} className="flex items-center gap-2 rounded-md border border-emerald-100 bg-white p-2">
+                <span className="shrink-0 text-xs">{receipt.type === 'file' ? '📎' : '🔗'}</span>
+                <button
+                  type="button"
+                  onClick={() => onOpenResource({ title: receipt.name || finance.title || '凭据', url: receipt.url })}
+                  className="min-w-0 flex-1 truncate text-left text-xs text-emerald-700 hover:underline"
+                >
+                  {receipt.name || receipt.url}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeReceipt(idx)}
+                  className="shrink-0 rounded p-1 text-slate-400 hover:bg-pink-50 hover:text-pink-600"
+                  title="移除"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
