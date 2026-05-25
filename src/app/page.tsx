@@ -23,6 +23,7 @@ import {
   Clipboard,
   CopyPlus,
   Archive,
+  Bug,
   Download,
   ExternalLink,
   Flame,
@@ -45,7 +46,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCockpitStore } from '@/store/useCockpitStore';
-import type { AIChange, AIRecordCard, ContextCard, ContextType, DecisionCard, FinanceCard, FinanceCategory, FinanceStatus, OutlineStatus, Priority, Project, ProjectOutlineItem, ProjectOutlineStageGoal, SystemSettings, SystemSettingsUpdate, TaskCard } from '@/types/cockpit';
+import type { AIChange, AIRecordCard, ContextCard, ContextType, DecisionCard, FinanceCard, FinanceCategory, FinanceStatus, OutlineStatus, Priority, Project, ProjectOutlineItem, ProjectOutlineStageGoal, SystemSettings, SystemSettingsUpdate, TaskCard, TestIssue, TestIssueSeverity, TestIssueStatus } from '@/types/cockpit';
 
 const statusLabel = {
   active: '推进中',
@@ -75,12 +76,11 @@ const outlineStatusLabel: Record<OutlineStatus, string> = {
 };
 
 const financeCategoryLabel: Record<FinanceCategory, string> = {
-  equipment: '设备',
-  software: '软件',
-  service: '服务',
   travel: '差旅',
-  food: '餐饮',
-  marketing: '营销',
+  team_building: '团建',
+  compute: '算力',
+  service: '服务',
+  hardware: '硬件',
   other: '其他',
 };
 
@@ -91,12 +91,11 @@ const financeStatusLabel: Record<FinanceStatus, string> = {
 };
 
 const financeCategoryStyle: Record<FinanceCategory, string> = {
-  equipment: 'border-slate-200 bg-slate-50 text-slate-700',
-  software: 'border-blue-200 bg-blue-50 text-blue-700',
-  service: 'border-violet-200 bg-violet-50 text-violet-700',
   travel: 'border-amber-200 bg-amber-50 text-amber-700',
-  food: 'border-orange-200 bg-orange-50 text-orange-700',
-  marketing: 'border-pink-200 bg-pink-50 text-pink-700',
+  team_building: 'border-orange-200 bg-orange-50 text-orange-700',
+  compute: 'border-blue-200 bg-blue-50 text-blue-700',
+  service: 'border-violet-200 bg-violet-50 text-violet-700',
+  hardware: 'border-slate-200 bg-slate-50 text-slate-700',
   other: 'border-gray-200 bg-gray-50 text-gray-700',
 };
 
@@ -104,6 +103,34 @@ const financeStatusStyle: Record<FinanceStatus, string> = {
   pending: 'border-amber-200 bg-amber-50 text-amber-700',
   approved: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   reimbursed: 'border-teal-200 bg-teal-50 text-teal-700',
+};
+
+const testIssueSeverityLabel: Record<TestIssueSeverity, string> = {
+  critical: '严重',
+  high: '高',
+  medium: '中',
+  low: '低',
+};
+
+const testIssueStatusLabel: Record<TestIssueStatus, string> = {
+  new: '新提交',
+  triaging: '处理中',
+  fixed: '已处理',
+  archived: '已归档',
+};
+
+const testIssueSeverityStyle: Record<TestIssueSeverity, string> = {
+  critical: 'border-red-200 bg-red-50 text-red-700',
+  high: 'border-pink-200 bg-pink-50 text-pink-700',
+  medium: 'border-amber-200 bg-amber-50 text-amber-700',
+  low: 'border-slate-200 bg-slate-50 text-slate-700',
+};
+
+const testIssueStatusStyle: Record<TestIssueStatus, string> = {
+  new: 'border-blue-200 bg-blue-50 text-blue-700',
+  triaging: 'border-amber-200 bg-amber-50 text-amber-700',
+  fixed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  archived: 'border-slate-200 bg-slate-50 text-slate-500',
 };
 
 const priorityStyle: Record<Priority, string> = {
@@ -132,6 +159,7 @@ type KnowledgePanel = 'contexts' | 'decisions';
 type ActiveCard = { type: 'task' | 'context' | 'decision' | 'finance'; id: string };
 type ResourcePreview = { title: string; url: string };
 type OutlineFocusMode = 'current' | 'all';
+type TestIssueViewFilter = 'active' | 'all' | 'archived';
 
 type UploadResponse = {
   url: string;
@@ -154,6 +182,10 @@ export default function Home() {
   const [isMounted, setIsMounted] = useState(false);
   const [isProjectOutlineOpen, setIsProjectOutlineOpen] = useState(false);
   const [outlineFocusMode, setOutlineFocusMode] = useState<OutlineFocusMode>('current');
+  const [isTestIssuePanelOpen, setIsTestIssuePanelOpen] = useState(false);
+  const [testIssueProjectFilter, setTestIssueProjectFilter] = useState('all');
+  const [testIssueStatusFilter, setTestIssueStatusFilter] = useState<TestIssueViewFilter>('active');
+  const [testIssueQuery, setTestIssueQuery] = useState('');
   const [taskFilter, setTaskFilter] = useState<TaskFilter | null>(null);
   const [contextLibraryQuery, setContextLibraryQuery] = useState('');
   const [contextTypeFilter, setContextTypeFilter] = useState<'all' | ContextType>('all');
@@ -164,6 +196,7 @@ export default function Home() {
   const [isFinancePanelOpen, setIsFinancePanelOpen] = useState(false);
   const [financeCategoryFilter, setFinanceCategoryFilter] = useState<'all' | FinanceCategory>('all');
   const [financeStatusFilter, setFinanceStatusFilter] = useState<'all' | FinanceStatus>('all');
+  const [financeProjectFilter, setFinanceProjectFilter] = useState('all');
   const [financeMonthFilter, setFinanceMonthFilter] = useState('');
   const [financeQuery, setFinanceQuery] = useState('');
   const [uploadingContext, setUploadingContext] = useState(false);
@@ -194,7 +227,7 @@ export default function Home() {
     return () => window.clearTimeout(timer);
     // Zustand actions are stable here; this effect intentionally tracks data snapshots.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.settings, store.projects, store.outlineStageGoals, store.outlineItems, store.tasks, store.contexts, store.aiRecords, store.decisions, store.finances, store.selectedProjectId, store.hydrated]);
+  }, [store.settings, store.projects, store.outlineStageGoals, store.outlineItems, store.tasks, store.contexts, store.aiRecords, store.decisions, store.finances, store.testIssues, store.selectedProjectId, store.hydrated]);
 
   const selectedProject = useMemo(
     () => store.projects.find((project) => project.id === store.selectedProjectId) || store.projects[0],
@@ -279,6 +312,7 @@ export default function Home() {
       return matchesQuery && matchesLibraryStatus(decision, decisionStatusFilter);
     }),
   );
+  const openTestIssueCount = store.testIssues.filter((issue) => issue.status !== 'archived' && !issue.archived).length;
   const createAndOpenTask = () => {
     const id = store.createTask(selectedProject.id);
     setActiveCard({ type: 'task', id });
@@ -504,6 +538,7 @@ export default function Home() {
         onOpen={setActiveAIPanel}
       />
       <McpGuideButton isOpen={isMcpGuideOpen} onOpen={() => setIsMcpGuideOpen(true)} />
+      <TestIssueFloatingButton isOpen={isTestIssuePanelOpen} openCount={openTestIssueCount} onOpen={() => setIsTestIssuePanelOpen(true)} />
       <FinanceFloatingButton isOpen={isFinancePanelOpen} onOpen={() => setIsFinancePanelOpen(true)} />
       <SettingsFloatingButton isOpen={isSettingsOpen} onOpen={() => setIsSettingsOpen(true)} />
       <input
@@ -599,10 +634,12 @@ export default function Home() {
         assignees={store.settings.assignees}
         categoryFilter={financeCategoryFilter}
         statusFilter={financeStatusFilter}
+        projectFilter={financeProjectFilter}
         monthFilter={financeMonthFilter}
         query={financeQuery}
         onCategoryChange={setFinanceCategoryFilter}
         onStatusChange={setFinanceStatusFilter}
+        onProjectChange={setFinanceProjectFilter}
         onMonthChange={setFinanceMonthFilter}
         onQueryChange={setFinanceQuery}
         onCreate={() => {
@@ -613,6 +650,24 @@ export default function Home() {
         onDelete={store.deleteFinance}
         onOpenResource={openResourcePreview}
         onClose={() => setIsFinancePanelOpen(false)}
+      />
+      <TestIssuePanel
+        isOpen={isTestIssuePanelOpen}
+        issues={store.testIssues}
+        projects={store.projects}
+        assignees={store.settings.assignees}
+        projectFilter={testIssueProjectFilter}
+        statusFilter={testIssueStatusFilter}
+        query={testIssueQuery}
+        onProjectChange={setTestIssueProjectFilter}
+        onStatusChange={setTestIssueStatusFilter}
+        onQueryChange={setTestIssueQuery}
+        onCreate={store.createTestIssue}
+        onChange={store.updateTestIssue}
+        onArchive={store.archiveTestIssue}
+        onDelete={store.deleteTestIssue}
+        onOpenResource={openResourcePreview}
+        onClose={() => setIsTestIssuePanelOpen(false)}
       />
       <SettingsDrawer
         isOpen={isSettingsOpen}
@@ -1595,6 +1650,29 @@ function SettingsFloatingButton({ isOpen, onOpen }: { isOpen: boolean; onOpen: (
       <Settings size={20} />
       <span className="pointer-events-none absolute bottom-14 right-0 whitespace-nowrap rounded bg-slate-950 px-2 py-1 text-xs text-white opacity-0 shadow-sm transition group-hover:opacity-100">
         系统设置
+      </span>
+    </button>
+  );
+}
+
+function TestIssueFloatingButton({ isOpen, openCount, onOpen }: { isOpen: boolean; openCount: number; onOpen: () => void }) {
+  return (
+    <button
+      title="测试问题"
+      aria-label="测试问题"
+      onClick={onOpen}
+      className={`group fixed bottom-44 right-5 z-30 flex h-12 w-12 items-center justify-center rounded-md border shadow-lg transition ${
+        isOpen ? 'border-rose-500 bg-rose-600 text-white shadow-rose-200' : 'border-rose-100 bg-white text-rose-700 shadow-rose-100 hover:border-rose-200 hover:bg-rose-50'
+      }`}
+    >
+      <Bug size={20} />
+      {openCount > 0 && (
+        <span className={`absolute -right-1.5 -top-1.5 min-w-5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isOpen ? 'bg-white text-rose-700' : 'bg-rose-600 text-white'}`}>
+          {openCount > 99 ? '99+' : openCount}
+        </span>
+      )}
+      <span className="pointer-events-none absolute bottom-14 right-0 whitespace-nowrap rounded bg-slate-950 px-2 py-1 text-xs text-white opacity-0 shadow-sm transition group-hover:opacity-100">
+        测试问题
       </span>
     </button>
   );
@@ -2877,6 +2955,316 @@ function FinanceFloatingButton({ isOpen, onOpen }: { isOpen: boolean; onOpen: ()
 
 // ─── Finance Panel ───
 
+function TestIssuePanel({
+  isOpen,
+  issues,
+  projects,
+  assignees,
+  projectFilter,
+  statusFilter,
+  query,
+  onProjectChange,
+  onStatusChange,
+  onQueryChange,
+  onCreate,
+  onChange,
+  onArchive,
+  onDelete,
+  onOpenResource,
+  onClose,
+}: {
+  isOpen: boolean;
+  issues: TestIssue[];
+  projects: Project[];
+  assignees: string[];
+  projectFilter: string;
+  statusFilter: TestIssueViewFilter;
+  query: string;
+  onProjectChange: (v: string) => void;
+  onStatusChange: (v: TestIssueViewFilter) => void;
+  onQueryChange: (v: string) => void;
+  onCreate: () => string;
+  onChange: (id: string, updates: Partial<TestIssue>) => void;
+  onArchive: (id: string) => void;
+  onDelete: (id: string) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+  onClose: () => void;
+}) {
+  if (!isOpen) return null;
+
+  const q = query.trim().toLowerCase();
+  const filtered = issues.filter((issue) => {
+    const linkedProject = issue.projectId ? projects.find((project) => project.id === issue.projectId) : null;
+    const isArchived = issue.archived || issue.status === 'archived';
+    if (statusFilter === 'active' && isArchived) return false;
+    if (statusFilter === 'archived' && !isArchived) return false;
+    if (projectFilter === 'unassigned' && issue.projectId) return false;
+    if (projectFilter !== 'all' && projectFilter !== 'unassigned' && issue.projectId !== projectFilter) return false;
+    if (q && ![issue.title, issue.description, issue.reporter, linkedProject?.name || ''].some((field) => field.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const sorted = [...filtered].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const openCount = issues.filter((issue) => !issue.archived && issue.status !== 'archived').length;
+  const criticalCount = issues.filter((issue) => !issue.archived && issue.status !== 'archived' && issue.severity === 'critical').length;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-slate-950/10 backdrop-blur-[1px]">
+      <aside className="ml-auto flex h-full w-full max-w-[960px] flex-col border-l border-rose-100 bg-[#fffdf8] shadow-2xl shadow-slate-900/15">
+        <div className="flex items-start justify-between gap-4 border-b border-rose-100 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-rose-800">
+              <Bug size={17} />
+              测试问题
+            </div>
+            <div className="mt-1 text-xs leading-5 text-slate-500">收集团队和测试反馈，关联项目，处理完成后归档。</div>
+          </div>
+          <button title="关闭" aria-label="关闭" onClick={onClose} className="rounded-md border border-rose-100 bg-white p-2 text-slate-500 hover:bg-rose-50">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <div className="mb-5 rounded-md border border-rose-100 bg-gradient-to-r from-rose-50/80 to-amber-50/60 p-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div>
+                <div className="text-[11px] text-slate-500">待处理</div>
+                <div className="mt-1 text-2xl font-bold text-rose-700">{openCount}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">严重问题</div>
+                <div className="mt-1 text-2xl font-bold text-red-700">{criticalCount}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">当前筛选</div>
+                <div className="mt-1 text-lg font-semibold text-slate-800">{sorted.length}</div>
+              </div>
+              <div className="text-right text-xs text-slate-500">
+                总计 {issues.length} 条
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[220px] flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <input
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="搜索标题、说明、提交人、项目..."
+                className="h-8 w-full rounded-md border border-rose-100 bg-white pl-8 pr-3 text-xs outline-none focus:border-rose-300"
+              />
+            </div>
+            <select value={statusFilter} onChange={(event) => onStatusChange(event.target.value as TestIssueViewFilter)} className="h-8 rounded-md border border-rose-100 bg-white px-2 text-xs">
+              <option value="active">待处理</option>
+              <option value="all">全部</option>
+              <option value="archived">已归档</option>
+            </select>
+            <select value={projectFilter} onChange={(event) => onProjectChange(event.target.value)} className="h-8 max-w-[180px] rounded-md border border-rose-100 bg-white px-2 text-xs">
+              <option value="all">All Projects</option>
+              <option value="unassigned">No Project</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={onCreate}
+              className="flex h-8 items-center gap-1 rounded-md bg-rose-600 px-3 text-xs font-medium text-white shadow-sm shadow-rose-200 hover:bg-rose-700"
+            >
+              <Plus size={14} />
+              新问题
+            </button>
+          </div>
+
+          <TestIssueList issues={sorted} projects={projects} assignees={assignees} onChange={onChange} onArchive={onArchive} onDelete={onDelete} onOpenResource={onOpenResource} />
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function TestIssueList({
+  issues,
+  projects,
+  assignees,
+  onChange,
+  onArchive,
+  onDelete,
+  onOpenResource,
+}: {
+  issues: TestIssue[];
+  projects: Project[];
+  assignees: string[];
+  onChange: (id: string, updates: Partial<TestIssue>) => void;
+  onArchive: (id: string) => void;
+  onDelete: (id: string) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+}) {
+  if (issues.length === 0) return <EmptySection text="暂无测试问题。" />;
+
+  return (
+    <div className="space-y-3">
+      {issues.map((issue) => {
+        const linkedProject = issue.projectId ? projects.find((project) => project.id === issue.projectId) : null;
+        const isArchived = issue.archived || issue.status === 'archived';
+        return (
+          <TestIssueItem
+            key={issue.id}
+            issue={issue}
+            projects={projects}
+            assignees={assignees}
+            linkedProject={linkedProject}
+            isArchived={isArchived}
+            onChange={onChange}
+            onArchive={onArchive}
+            onDelete={onDelete}
+            onOpenResource={onOpenResource}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function TestIssueItem({
+  issue,
+  projects,
+  assignees,
+  linkedProject,
+  isArchived,
+  onChange,
+  onArchive,
+  onDelete,
+  onOpenResource,
+}: {
+  issue: TestIssue;
+  projects: Project[];
+  assignees: string[];
+  linkedProject: Project | null | undefined;
+  isArchived: boolean;
+  onChange: (id: string, updates: Partial<TestIssue>) => void;
+  onArchive: (id: string) => void;
+  onDelete: (id: string) => void;
+  onOpenResource: (resource: ResourcePreview) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const attachments = issue.attachments || [];
+
+  const uploadAttachments = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    setUploading(true);
+    try {
+      const uploadedAttachments = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}));
+          window.alert(`上传失败：${error.error || file.name}`);
+          continue;
+        }
+        const uploaded = (await res.json()) as UploadResponse;
+        uploadedAttachments.push({
+          url: uploaded.url,
+          type: uploaded.mimeType.startsWith('image/') ? 'image' as const : 'file' as const,
+          name: uploaded.originalName || file.name,
+        });
+      }
+      if (uploadedAttachments.length > 0) {
+        onChange(issue.id, { attachments: [...attachments, ...uploadedAttachments] });
+      }
+    } finally {
+      setUploading(false);
+      event.target.value = '';
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    onChange(issue.id, { attachments: attachments.filter((_, i) => i !== index) });
+  };
+
+  return (
+    <article className={`rounded-md border p-3 ${isArchived ? 'border-slate-200 bg-slate-50/70' : 'border-rose-100 bg-rose-50/30'}`}>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <select value={issue.severity} onChange={(event) => onChange(issue.id, { severity: event.target.value as TestIssueSeverity })} className={`h-8 rounded border px-2 text-xs ${testIssueSeverityStyle[issue.severity]}`}>
+          {Object.entries(testIssueSeverityLabel).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <select value={issue.status} onChange={(event) => onChange(issue.id, { status: event.target.value as TestIssueStatus })} className={`h-8 rounded border px-2 text-xs ${testIssueStatusStyle[issue.status]}`}>
+          {Object.entries(testIssueStatusLabel).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <select value={issue.projectId || ''} onChange={(event) => onChange(issue.id, { projectId: event.target.value || null })} className="h-8 min-w-[160px] rounded border border-rose-100 bg-white px-2 text-xs">
+          <option value="">未关联项目</option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>{project.name}</option>
+          ))}
+        </select>
+        <select value={issue.reporter} onChange={(event) => onChange(issue.id, { reporter: event.target.value })} className="h-8 w-28 rounded border border-rose-100 bg-white px-2 text-xs outline-none focus:border-rose-300">
+          <option value="">提交人</option>
+          {getAssigneeOptions(assignees, issue.reporter).map((assignee) => (
+            <option key={assignee} value={assignee}>{assignee}</option>
+          ))}
+        </select>
+        <div className="ml-auto flex items-center gap-1">
+          <input ref={attachmentInputRef} type="file" multiple accept="image/*" className="hidden" onChange={uploadAttachments} />
+          <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={uploading} className="flex h-8 items-center gap-1 rounded border border-rose-100 bg-white px-2 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60">
+            <Upload size={13} />
+            {uploading ? '上传中' : '上传图片'}
+          </button>
+          {!isArchived && (
+            <button onClick={() => onArchive(issue.id)} className="flex h-8 items-center gap-1 rounded border border-rose-100 bg-white px-2 text-xs font-medium text-rose-700 hover:bg-rose-50">
+              <Archive size={13} />
+              归档
+            </button>
+          )}
+          <IconButton label="删除" onClick={() => onDelete(issue.id)} />
+        </div>
+      </div>
+      <input value={issue.title} onChange={(event) => onChange(issue.id, { title: event.target.value })} className="mb-2 w-full bg-transparent text-base font-semibold outline-none" placeholder="问题标题" />
+      <textarea value={issue.description} onChange={(event) => onChange(issue.id, { description: event.target.value })} rows={3} placeholder="复现步骤、现象、期望结果..." className="w-full resize-none rounded-md border border-rose-100 bg-white/80 p-3 text-sm leading-6 text-slate-700 outline-none focus:border-rose-300" />
+      {attachments.length > 0 && (
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+          {attachments.map((attachment, index) => (
+            <div key={`${attachment.url}-${index}`} className="group relative overflow-hidden rounded-md border border-rose-100 bg-white">
+              <button
+                type="button"
+                onClick={() => onOpenResource({ title: attachment.name || issue.title || '测试问题图片', url: attachment.url })}
+                className="block aspect-video w-full bg-rose-50 text-left"
+              >
+                {attachment.type === 'image' ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={attachment.url} alt={attachment.name || issue.title || '测试问题图片'} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center px-2 text-xs text-rose-700">{attachment.name || attachment.url}</div>
+                )}
+              </button>
+              <button
+                type="button"
+                title="删除图片"
+                aria-label="删除图片"
+                onClick={() => removeAttachment(index)}
+                className="absolute right-1 top-1 rounded border border-rose-100 bg-white/90 p-1 text-slate-500 opacity-0 shadow-sm transition hover:bg-rose-50 hover:text-rose-700 group-hover:opacity-100"
+              >
+                <X size={12} />
+              </button>
+              <div className="truncate px-2 py-1 text-[11px] text-slate-500">{attachment.name || attachment.url}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+        <span>{linkedProject ? `关联：${linkedProject.name}` : '未关联项目'}</span>
+        <span>更新于 {new Date(issue.updatedAt).toLocaleString('zh-CN')}</span>
+      </div>
+    </article>
+  );
+}
 function FinancePanel({
   isOpen,
   finances,
@@ -2884,10 +3272,12 @@ function FinancePanel({
   assignees,
   categoryFilter,
   statusFilter,
+  projectFilter,
   monthFilter,
   query,
   onCategoryChange,
   onStatusChange,
+  onProjectChange,
   onMonthChange,
   onQueryChange,
   onCreate,
@@ -2902,10 +3292,12 @@ function FinancePanel({
   assignees: string[];
   categoryFilter: 'all' | FinanceCategory;
   statusFilter: 'all' | FinanceStatus;
+  projectFilter: string;
   monthFilter: string;
   query: string;
   onCategoryChange: (v: 'all' | FinanceCategory) => void;
   onStatusChange: (v: 'all' | FinanceStatus) => void;
+  onProjectChange: (v: string) => void;
   onMonthChange: (v: string) => void;
   onQueryChange: (v: string) => void;
   onCreate: () => void;
@@ -2918,9 +3310,12 @@ function FinancePanel({
 
   const q = query.trim().toLowerCase();
   const filtered = finances.filter((f) => {
-    if (q && ![f.title, f.description, f.payer, String(f.amount)].some((field) => field.toLowerCase().includes(q))) return false;
+    const linkedProject = f.projectId ? projects.find((project) => project.id === f.projectId) : null;
+    if (q && ![f.title, f.description, f.payer, String(f.amount), linkedProject?.name || ''].some((field) => field.toLowerCase().includes(q))) return false;
     if (categoryFilter !== 'all' && f.category !== categoryFilter) return false;
     if (statusFilter !== 'all' && f.status !== statusFilter) return false;
+    if (projectFilter === 'unassigned' && f.projectId) return false;
+    if (projectFilter !== 'all' && projectFilter !== 'unassigned' && f.projectId !== projectFilter) return false;
     if (monthFilter && !f.date.startsWith(monthFilter)) return false;
     return true;
   });
@@ -3010,6 +3405,13 @@ function FinancePanel({
               <option value="all">全部状态</option>
               {Object.entries(financeStatusLabel).map(([key, label]) => (
                 <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+            <select value={projectFilter} onChange={(event) => onProjectChange(event.target.value)} className="h-8 max-w-[180px] rounded-md border border-emerald-100 bg-white px-2 text-xs">
+              <option value="all">All Projects</option>
+              <option value="unassigned">No Project</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
               ))}
             </select>
             <input

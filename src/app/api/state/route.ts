@@ -56,6 +56,7 @@ function stripMeta(snapshot: CockpitStateSnapshot & { stateVersion?: string }): 
     aiRecords: snapshot.aiRecords,
     decisions: snapshot.decisions,
     finances: normalizeFinances(snapshot.finances),
+    testIssues: normalizeTestIssues(snapshot.testIssues),
     selectedProjectId: snapshot.selectedProjectId,
   };
 }
@@ -74,6 +75,7 @@ function mergeSnapshots(current: CockpitStateSnapshot, incoming: CockpitStateSna
     aiRecords: mergeById(current.aiRecords, incoming.aiRecords),
     decisions: mergeById(current.decisions, incoming.decisions),
     finances: normalizeFinances(mergeById(current.finances || [], incoming.finances || [])),
+    testIssues: normalizeTestIssues(mergeById(current.testIssues || [], incoming.testIssues || [])),
     selectedProjectId: incoming.selectedProjectId || current.selectedProjectId,
   };
 }
@@ -94,6 +96,7 @@ function normalizeSnapshot(snapshot: Partial<CockpitStateSnapshot>): CockpitStat
     aiRecords: snapshot.aiRecords || [],
     decisions: snapshot.decisions || [],
     finances: normalizeFinances(snapshot.finances),
+    testIssues: normalizeTestIssues(snapshot.testIssues),
     selectedProjectId: snapshot.selectedProjectId || null,
   };
 }
@@ -153,9 +156,20 @@ function normalizeContexts(contexts: ContextCard[] | undefined): ContextCard[] {
   }));
 }
 
+function normalizeFinanceCategory(category: string | undefined): FinanceCard['category'] {
+  if (category === 'equipment') return 'hardware';
+  if (category === 'software') return 'service';
+  if (category === 'food' || category === 'marketing') return 'team_building';
+  if (['travel', 'team_building', 'compute', 'service', 'hardware', 'other'].includes(category || '')) {
+    return category as FinanceCard['category'];
+  }
+  return 'other';
+}
+
 function normalizeFinances(finances: FinanceCard[] | undefined): FinanceCard[] {
   return (finances || []).map((finance) => {
-    if (finance.receipts) return finance;
+    const category = normalizeFinanceCategory(finance.category);
+    if (finance.receipts) return { ...finance, category };
     const legacyUrl = (finance as { url?: string }).url;
     const legacyType = (finance as { receiptType?: string }).receiptType;
     const receipts: FinanceReceipt[] = [];
@@ -163,8 +177,15 @@ function normalizeFinances(finances: FinanceCard[] | undefined): FinanceCard[] {
       receipts.push({ url: legacyUrl, type: legacyType as 'link' | 'file' });
     }
     const { ...rest } = finance;
-    return { ...rest, receipts };
+    return { ...rest, category, receipts };
   });
+}
+
+function normalizeTestIssues(issues: CockpitStateSnapshot['testIssues'] | undefined): CockpitStateSnapshot['testIssues'] {
+  return (issues || []).map((issue) => ({
+    ...issue,
+    attachments: issue.attachments || [],
+  }));
 }
 
 function migrateOutlineStageGoals(items: Partial<ProjectOutlineItem>[] | undefined): ProjectOutlineStageGoal[] {

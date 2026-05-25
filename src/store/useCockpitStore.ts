@@ -16,6 +16,7 @@ import type {
   SystemSettingsUpdate,
   TaskCard,
   TaskStatus,
+  TestIssue,
 } from '@/types/cockpit';
 import { sampleSnapshot } from '@/lib/sampleData';
 
@@ -92,6 +93,10 @@ interface CockpitStore extends CockpitStateSnapshot {
   createFinance: () => string;
   updateFinance: (id: string, updates: Partial<FinanceCard>) => void;
   deleteFinance: (id: string) => void;
+  createTestIssue: () => string;
+  updateTestIssue: (id: string, updates: Partial<TestIssue>) => void;
+  archiveTestIssue: (id: string) => void;
+  deleteTestIssue: (id: string) => void;
   runAiAction: (projectId: string, action: string) => Promise<void>;
   toggleAIChange: (id: string) => void;
   applySelectedAIChanges: (projectId: string) => void;
@@ -115,6 +120,7 @@ const snapshotFromState = (state: CockpitStore): CockpitStateSnapshot => ({
   aiRecords: state.aiRecords,
   decisions: state.decisions,
   finances: state.finances,
+  testIssues: state.testIssues,
   selectedProjectId: state.selectedProjectId,
 });
 
@@ -177,9 +183,20 @@ const normalizeContexts = (contexts: ContextCard[] | undefined): ContextCard[] =
     type: normalizeContextType(context.type),
   }));
 
+const normalizeFinanceCategory = (category: string | undefined): FinanceCard['category'] => {
+  if (category === 'equipment') return 'hardware';
+  if (category === 'software') return 'service';
+  if (category === 'food' || category === 'marketing') return 'team_building';
+  if (['travel', 'team_building', 'compute', 'service', 'hardware', 'other'].includes(category || '')) {
+    return category as FinanceCard['category'];
+  }
+  return 'other';
+};
+
 const normalizeFinances = (finances: FinanceCard[] | undefined): FinanceCard[] =>
   (finances || []).map((finance) => {
-    if (finance.receipts) return finance;
+    const category = normalizeFinanceCategory(finance.category);
+    if (finance.receipts) return { ...finance, category };
     const legacyUrl = (finance as { url?: string }).url;
     const legacyType = (finance as { receiptType?: string }).receiptType;
     const receipts: FinanceReceipt[] = [];
@@ -187,8 +204,14 @@ const normalizeFinances = (finances: FinanceCard[] | undefined): FinanceCard[] =
       receipts.push({ url: legacyUrl, type: legacyType as 'link' | 'file' });
     }
     const { ...rest } = finance;
-    return { ...rest, receipts };
+    return { ...rest, category, receipts };
   });
+
+const normalizeTestIssues = (issues: TestIssue[] | undefined): TestIssue[] =>
+  (issues || []).map((issue) => ({
+    ...issue,
+    attachments: issue.attachments || [],
+  }));
 
 const migrateOutlineStageGoals = (items: Partial<ProjectOutlineItem>[]): ProjectOutlineStageGoal[] => {
   const timestamp = now();
@@ -222,6 +245,7 @@ const normalizeSnapshot = (snapshot: Partial<CockpitStateSnapshot>): CockpitStat
   aiRecords: snapshot.aiRecords || [],
   decisions: snapshot.decisions || [],
   finances: normalizeFinances(snapshot.finances),
+  testIssues: normalizeTestIssues(snapshot.testIssues),
   selectedProjectId: snapshot.selectedProjectId || null,
 });
 
@@ -297,6 +321,9 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
         contexts: state.contexts.filter((context) => context.projectId !== id),
         aiRecords: state.aiRecords.filter((record) => record.projectId !== id),
         decisions: state.decisions.filter((decision) => decision.projectId !== id),
+        testIssues: state.testIssues.map((issue) =>
+          issue.projectId === id ? { ...issue, projectId: null, updatedAt: now() } : issue,
+        ),
         selectedProjectId: state.selectedProjectId === id ? fallbackProject?.id || null : state.selectedProjectId,
       };
     }),
@@ -578,6 +605,52 @@ export const useCockpitStore = create<CockpitStore>()((set, get) => ({
   deleteFinance: (id) =>
     set((state) => ({
       finances: state.finances.filter((finance) => finance.id !== id),
+    })),
+
+  createTestIssue: () => {
+    const timestamp = now();
+    const id = makeId('test-issue');
+    const issue: TestIssue = {
+      id,
+      projectId: get().selectedProjectId,
+      title: '新测试问题',
+      description: '',
+      reporter: '',
+      severity: 'medium',
+      status: 'new',
+      attachments: [],
+      archived: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    set((state) => ({ testIssues: [issue, ...state.testIssues] }));
+    return id;
+  },
+
+  updateTestIssue: (id, updates) =>
+    set((state) => ({
+      testIssues: state.testIssues.map((issue) =>
+        issue.id === id
+          ? {
+              ...issue,
+              ...updates,
+              archived: updates.status === 'archived' ? true : updates.archived ?? issue.archived,
+              updatedAt: now(),
+            }
+          : issue,
+      ),
+    })),
+
+  archiveTestIssue: (id) =>
+    set((state) => ({
+      testIssues: state.testIssues.map((issue) =>
+        issue.id === id ? { ...issue, status: 'archived', archived: true, updatedAt: now() } : issue,
+      ),
+    })),
+
+  deleteTestIssue: (id) =>
+    set((state) => ({
+      testIssues: state.testIssues.filter((issue) => issue.id !== id),
     })),
 
   runAiAction: async (projectId, action) => {

@@ -3,8 +3,10 @@ export type ProjectStage = 'exploring' | 'planning' | 'building' | 'testing' | '
 export type Priority = 'high' | 'medium' | 'low';
 export type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done' | 'canceled';
 export type ContextType = 'note' | 'doc' | 'meeting' | 'feedback' | 'research' | 'link' | 'file';
-export type FinanceCategory = 'equipment' | 'software' | 'service' | 'travel' | 'food' | 'marketing' | 'other';
+export type FinanceCategory = 'travel' | 'team_building' | 'compute' | 'service' | 'hardware' | 'other';
 export type FinanceStatus = 'pending' | 'approved' | 'reimbursed';
+export type TestIssueSeverity = 'critical' | 'high' | 'medium' | 'low';
+export type TestIssueStatus = 'new' | 'triaging' | 'fixed' | 'archived';
 export type AIRecordValue = 'insight' | 'task_suggestion' | 'draft' | 'code' | 'research' | 'decision_support';
 export type OutlineStatus = 'not_started' | 'doing' | 'done' | 'risk';
 
@@ -147,6 +149,12 @@ export interface FinanceReceipt {
   name?: string;
 }
 
+export interface TestIssueAttachment {
+  url: string;
+  type: 'image' | 'file';
+  name?: string;
+}
+
 export interface FinanceCard {
   id: string;
   projectId: string | null;
@@ -162,6 +170,20 @@ export interface FinanceCard {
   updatedAt: string;
 }
 
+export interface TestIssue {
+  id: string;
+  projectId: string | null;
+  title: string;
+  description: string;
+  reporter: string;
+  severity: TestIssueSeverity;
+  status: TestIssueStatus;
+  attachments: TestIssueAttachment[];
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CockpitStateSnapshot {
   settings: SystemSettings;
   projects: Project[];
@@ -172,6 +194,7 @@ export interface CockpitStateSnapshot {
   aiRecords: AIRecordCard[];
   decisions: DecisionCard[];
   finances: FinanceCard[];
+  testIssues: TestIssue[];
   selectedProjectId: string | null;
 }
 
